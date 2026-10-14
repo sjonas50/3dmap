@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>ReaderBee World</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Andika:wght@400;700&family=Fredoka:wght@500;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --honey: #f6b81f;
+    --honey-dark: #b97c00;
+    --ink: #2a2118;
+    --paper: #fffaf0;
+    --sky: #7cc4f0;
+    --green: #3e9b4f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #9cc6ec; font-family: Andika, Fredoka, system-ui, sans-serif; color: var(--ink); }
+  /* black behind the canvas: soft leaf edges write alpha < 1, so anything lighter shows through as white speckles */
+  canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; background: #000; }
+  .hidden { display: none !important; }
+  /* kid-proofing: no text selection, long-press menus, tap flashes or double-tap zoom */
+  body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  button { touch-action: manipulation; }
+  input { -webkit-user-select: text; user-select: text; }
+
+  #loading { position: fixed; inset: 0; display: grid; place-content: center; gap: 18px; text-align: center; background: linear-gradient(#bfe3fb, #e9f6d8); z-index: 20; }
+  #loading .bee { font-size: 64px; animation: buzz 1.2s ease-in-out infinite; }
+  #loadmsg { font-size: 24px; font-weight: 700; }
+  .bar { width: min(420px, 80vw); height: 18px; border-radius: 9px; background: #fff; border: 3px solid var(--ink); overflow: hidden; }
+  #loadbar { height: 100%; width: 0; background: repeating-linear-gradient(45deg, var(--honey) 0 14px, #ffd65a 14px 28px); transition: width 0.3s; }
+  @keyframes buzz { 0%,100% { transform: translate(-30px, 0) rotate(-8deg); } 50% { transform: translate(30px, -10px) rotate(8deg); } }
+
+  #start { position: fixed; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px; z-index: 15; background: radial-gradient(ellipse at center, rgba(255,250,235,0.15), rgba(30,40,60,0.45)); padding: 16px; }
+  #start .panel { background: var(--paper); border: 4px solid var(--ink); border-radius: 28px; padding: 26px 30px 22px; box-shadow: 0 10px 0 var(--ink), 0 24px 50px rgba(0,0,0,0.35); max-width: 640px; text-align: center; }
+  #start h1 { font-family: Fredoka, Andika, sans-serif; font-size: clamp(36px, 7vw, 60px); margin: 0; line-height: 1; letter-spacing: 1px; }
+  #start h1 span { color: var(--honey); -webkit-text-stroke: 2px var(--ink); }
+  .sub { font-size: 22px; margin: 8px 0 16px; }
+  #kids { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .kid { font: inherit; background: #fff; border: 3px solid var(--ink); border-radius: 18px; padding: 10px 10px 8px; width: 108px; cursor: pointer; display: grid; justify-items: center; gap: 6px; transition: transform 0.15s; }
+  .kid:hover { transform: translateY(-3px); }
+  .kid.sel { background: #fff2c4; box-shadow: 0 0 0 4px var(--honey); }
+  .face { width: 64px; height: 64px; border-radius: 50%; background: var(--skin); position: relative; border: 3px solid var(--ink); overflow: hidden; }
+  .face::before { content: ''; position: absolute; left: -6px; right: -6px; top: -14px; height: 34px; background: var(--hair); border-radius: 50%; }
+  .face::after { content: ''; position: absolute; left: 0; right: 0; bottom: -16px; height: 26px; background: var(--shirt); border-radius: 50% 50% 0 0; }
+  .face i { position: absolute; top: 30px; left: 18px; width: 7px; height: 7px; background: var(--ink); border-radius: 50%; box-shadow: 21px 0 0 var(--ink); }
+  .nm { font-size: 22px; font-weight: 700; }
+  #play { font: 700 30px Fredoka, Andika, sans-serif; margin-top: 18px; padding: 10px 40px; border-radius: 40px; border: 4px solid var(--ink); background: var(--honey); color: var(--ink); cursor: pointer; box-shadow: 0 6px 0 var(--ink); }
+  #play:active { transform: translateY(4px); box-shadow: 0 2px 0 var(--ink); }
+  .keys { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; justify-content: center; font-size: 17px; }
+  kbd { font: 700 15px Andika, sans-serif; background: #fff; border: 2px solid var(--ink); border-bottom-width: 4px; border-radius: 7px; padding: 1px 7px; }
+  /* "Who's playing?": each student taps their name (the class list comes from teacher.html) */
+  #whoList { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-height: 46vh; overflow-y: auto; padding: 4px 4px 8px; }
+  .who { font: 700 24px Andika, sans-serif; color: var(--ink); background: #fff; border: 3px solid var(--ink); border-left: 12px solid var(--c, var(--honey)); border-radius: 16px; padding: 8px 18px; min-width: 120px; cursor: pointer; box-shadow: 0 4px 0 var(--ink); }
+  .who:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+  .who.guest { font-size: 18px; background: #f3efe4; border-left-width: 3px; }
+  #notMe { font: 700 16px Andika, sans-serif; background: none; border: 0; padding: 2px 6px; margin: -8px 0 8px; color: var(--honey-dark); text-decoration: underline; cursor: pointer; }
+  #teacherLink { display: inline-block; margin-top: 14px; font-size: 15px; color: #6a5a40; }
+  #whoName { align-self: center; font-weight: 700; }
+
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+  #topLeft { position: absolute; top: 14px; left: 14px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+  .pills { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pill { background: var(--paper); border: 3px solid var(--ink); border-radius: 20px; padding: 6px 14px; font-size: 21px; font-weight: 700; box-shadow: 0 4px 0 var(--ink); white-space: nowrap; }
+  #prompt { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); background: var(--honey); border: 3px solid var(--ink); border-radius: 22px; padding: 8px 20px; font: 700 22px Fredoka, Andika, sans-serif; box-shadow: 0 5px 0 var(--ink); animation: bob 1.2s ease-in-out infinite; }
+  @keyframes bob { 50% { transform: translate(-50%, -6px); } }
+  #alpha { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; max-width: min(92vw, 900px); }
+  #alpha span { width: 30px; height: 34px; display: grid; place-content: center; border-radius: 8px; font: 700 20px Andika, sans-serif; background: rgba(255,255,255,0.25); color: rgba(255,255,255,0.5); border: 2px solid rgba(255,255,255,0.35); }
+  #alpha span.got { background: #ffd23a; color: var(--ink); border-color: var(--ink); }
+  #quest { background: #fff6d8; border: 3px solid var(--ink); border-radius: 20px; padding: 8px 16px 10px; box-shadow: 0 4px 0 var(--ink); pointer-events: auto; max-width: 300px; }
+  #quest.pop { animation: qpop 0.5s cubic-bezier(.2,1.6,.4,1); }
+  #quest.done { background: #dff7d8; }
+  @keyframes qpop { from { transform: scale(0.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  #questLead { font-size: 16px; font-weight: 700; color: var(--honey-dark); }
+  #questWord { font-size: 34px; font-weight: 700; letter-spacing: 2px; line-height: 1.1; transition: color 0.2s; }
+  #questWord.reading { color: #d0452f; }
+  .qbtns { display: flex; gap: 8px; margin-top: 6px; }
+  .qbtns button, #topRight button { font: 700 16px Andika, sans-serif; border: 2px solid var(--ink); border-radius: 16px; background: #fff; padding: 3px 12px; cursor: pointer; }
+  #topRight { position: absolute; top: 14px; right: 14px; display: flex; gap: 8px; pointer-events: auto; }
+  #topRight button { font-size: 22px; width: 48px; height: 48px; padding: 0; border-width: 3px; box-shadow: 0 4px 0 var(--ink); }
+  #settings { position: fixed; top: 76px; right: 14px; z-index: 12; background: var(--paper); border: 3px solid var(--ink); border-radius: 18px; padding: 12px 16px; box-shadow: 0 5px 0 var(--ink); font-size: 18px; width: 300px; pointer-events: auto; max-height: calc(100vh - 92px); overflow-y: auto; }
+  #settings h3 { margin: 0 0 6px; font-size: 18px; }
+  #settings .row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  #settings button { font: 700 16px Andika, sans-serif; border: 2px solid var(--ink); border-radius: 12px; background: #fff; padding: 6px 12px; min-height: 38px; cursor: pointer; }
+  #settings button.sel { background: var(--honey); }
+  #settings button.danger { background: #ffd9d4; }
+  #settings .note { font-size: 14px; margin: -2px 0 10px; color: #6a5a40; }
+  #settings .note:empty { display: none; }
+  #settings select { font: 16px Andika, sans-serif; border: 2px solid var(--ink); border-radius: 12px; padding: 6px 8px; min-height: 38px; max-width: 190px; background: #fff; color: var(--ink); }
+  #card { z-index: 2; position: absolute; top: 16px; left: 50%; transform: translateX(-50%); background: var(--paper); border: 4px solid var(--ink); border-radius: 26px; padding: 10px 28px 12px; text-align: center; box-shadow: 0 6px 0 var(--ink), 0 14px 30px rgba(0,0,0,0.25); min-width: 280px; max-width: min(92vw, 640px); pointer-events: auto; }
+  #card.pop { animation: pop 0.45s cubic-bezier(.2,1.6,.4,1); }
+  @keyframes pop { from { transform: translateX(-50%) scale(0.6); opacity: 0; } to { transform: translateX(-50%) scale(1); opacity: 1; } }
+  #cardPlace { font-size: 15px; letter-spacing: 2px; text-transform: uppercase; color: var(--honey-dark); font-weight: 700; }
+  #cardWord { font-family: Andika, sans-serif; font-size: clamp(42px, 8vw, 72px); font-weight: 700; line-height: 1.05; letter-spacing: 3px; transition: color 0.2s, transform 0.2s; }
+  #cardWord.reading { color: #d0452f; transform: scale(1.08); }
+  #cardSentence { font-size: clamp(20px, 3vw, 27px); margin: 2px 0 6px; }
+  #cardSentence mark { background: #ffe27a; border-radius: 6px; padding: 0 3px; }
+  #cardSpeak { font: 700 18px Andika, sans-serif; border: 2px solid var(--ink); border-radius: 18px; background: #e8f6ff; padding: 6px 16px; cursor: pointer; }
+  #minimap { position: absolute; right: 14px; bottom: 14px; width: 260px; height: 258px; border: 4px solid var(--ink); border-radius: 18px; box-shadow: 0 5px 0 var(--ink); background: #e8f2d8; pointer-events: auto; cursor: crosshair; }
+  #joyZone { position: absolute; left: 0; bottom: 0; width: 45%; height: 55%; pointer-events: auto; touch-action: none; z-index: 1; }
+  #joyBase { position: absolute; left: 40px; bottom: 40px; width: 120px; height: 120px; border-radius: 50%; background: rgba(255,250,240,0.35); border: 3px solid rgba(42,33,24,0.5); opacity: 0.6; }
+  #joyBase.on { opacity: 1; }
+  #joyKnob { position: absolute; left: 32px; top: 32px; width: 56px; height: 56px; border-radius: 50%; background: var(--honey); border: 3px solid var(--ink); }
+  .tbtn.use { background: #ffd65a; }
+  #touchBtns { position: absolute; right: 12px; bottom: 12px; display: grid; grid-template-columns: repeat(3, 66px); gap: 8px; pointer-events: auto; touch-action: none; }
+  .tbtn { font: 700 24px Andika, sans-serif; height: 66px; border-radius: 18px; border: 3px solid var(--ink); background: var(--paper); box-shadow: 0 4px 0 var(--ink); display: grid; place-content: center; line-height: 1; touch-action: none; }
+  .tbtn span { font-size: 12px; }
+  .tbtn.big { grid-row: span 2; height: auto; background: var(--honey); }
+  .tbtn.on { background: #ffd65a; }
+  body.touch #help { display: none; }
+  body.touch #minimap { top: 76px; right: 14px; bottom: auto; width: 170px; height: 169px; }
+  body.touch .key { display: none; }
+  body.touch .qbtns button { padding: 8px 14px; font-size: 18px; }
+  body.touch #card { top: auto; bottom: 182px; }
+  #help { position: absolute; left: 14px; bottom: 14px; background: rgba(255,250,240,0.92); border: 3px solid var(--ink); border-radius: 16px; padding: 8px 12px; font-size: 16px; line-height: 1.8; max-width: 330px; }
+  #toast { position: absolute; top: 46%; left: 50%; transform: translate(-50%, -50%); font: 700 34px Fredoka, Andika, sans-serif; color: #fff; text-shadow: 0 3px 0 var(--ink), 0 0 18px rgba(0,0,0,0.4); opacity: 0; white-space: nowrap; }
+  #toast b { color: #ffd23a; }
+  #toast.show { animation: toast 2.6s ease-out; }
+  @keyframes toast { 0% { opacity: 0; transform: translate(-50%, -30%) scale(0.7); } 12% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); } 75% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -80%) scale(1); } }
+  #bigmap { position: fixed; inset: 0; z-index: 10; display: grid; place-content: center; justify-items: center; gap: 10px; background: rgba(20,30,45,0.55); color: #fff; font-size: 20px; font-weight: 700; }
+  #bigmapc { width: min(92vw, calc(80vh * 1.009)); aspect-ratio: 1236 / 1225; border: 5px solid var(--ink); border-radius: 22px; background: #e8f2d8; cursor: crosshair; }
+  #bigClose { position: fixed; top: 14px; right: 14px; width: 56px; height: 56px; border-radius: 50%; border: 3px solid var(--ink); background: var(--paper); font: 700 26px Andika, sans-serif; box-shadow: 0 4px 0 var(--ink); cursor: pointer; }
+
+  /* talking with island friends */
+  #chat { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); width: min(740px, calc(100vw - 20px)); z-index: 12; background: var(--paper); border: 4px solid var(--ink); border-radius: 26px; box-shadow: 0 8px 0 var(--ink), 0 18px 40px rgba(0,0,0,0.3); padding: 12px 16px 14px; display: grid; gap: 10px; }
+  .chatTop { display: flex; align-items: center; gap: 10px; }
+  #chatFace { font-size: 32px; width: 54px; height: 54px; display: grid; place-content: center; background: #fff2c4; border: 3px solid var(--ink); border-radius: 50%; flex: none; }
+  #chatName { font: 700 26px Fredoka, Andika, sans-serif; flex: 1; }
+  .round { width: 54px; height: 54px; flex: none; border-radius: 50%; border: 3px solid var(--ink); background: #fff; font-size: 24px; cursor: pointer; box-shadow: 0 3px 0 var(--ink); display: grid; place-content: center; padding: 0; }
+  #chatKid { justify-self: end; background: #dff1ff; border: 2px solid #8cb8dd; border-radius: 16px 16px 4px 16px; padding: 4px 12px; font-size: 19px; max-width: 80%; }
+  #chatKid:empty { display: none; }
+  #chatSay { font: 700 clamp(22px, 3.6vw, 31px)/1.35 Andika, sans-serif; min-height: 1.4em; }
+  #chatSay span { border-radius: 6px; transition: background 0.1s; }
+  #chatSay span.on { background: #ffd23a; box-shadow: 0 0 0 3px #ffd23a; }
+  #chatChoices { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { display: inline-flex; align-items: center; gap: 8px; font: 700 21px Andika, sans-serif; color: var(--ink); padding: 6px 16px 6px 6px; min-height: 52px; border-radius: 26px; border: 3px solid var(--ink); background: #fff8e0; cursor: pointer; box-shadow: 0 3px 0 var(--ink); }
+  .chip .hear { width: 38px; height: 38px; border-radius: 50%; background: #fff; border: 2px solid var(--ink); display: grid; place-content: center; font-size: 17px; flex: none; }
+  .chip.bye { background: #ffe1e1; }
+  .chatIn { display: flex; gap: 8px; align-items: center; }
+  #chatText { flex: 1; min-width: 0; font: 22px Andika, sans-serif; padding: 10px 14px; border-radius: 18px; border: 3px solid var(--ink); }
+  #chatMic { background: #e8f6ff; }
+  #chatMic.on { background: #ff6b5b; animation: mic 1s ease-in-out infinite; }
+  @keyframes mic { 50% { transform: scale(1.12); } }
+  #chat.waiting .chip, #chat.waiting #chatSend, #chat.waiting #chatMic { opacity: 0.4; pointer-events: none; }
+  .dots i { display: inline-block; width: 14px; height: 14px; margin: 0 4px; border-radius: 50%; background: var(--honey); animation: dot 1s infinite; }
+  .dots i:nth-child(2) { animation-delay: 0.15s; } .dots i:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes dot { 0%, 80%, 100% { transform: translateY(0); opacity: 0.4; } 40% { transform: translateY(-8px); opacity: 1; } }
+  body.chatting #prompt, body.chatting #help, body.chatting #joyZone, body.chatting #touchBtns, body.chatting #card { display: none; }
+  @media (max-width: 900px) { body.chatting #minimap { display: none; } }
+  @media (max-height: 520px) { #chat { padding: 8px 12px; gap: 6px; } .chip { min-height: 44px; font-size: 18px; } .round { width: 46px; height: 46px; } #chatFace { width: 46px; height: 46px; } }
+
+  @media (max-width: 720px) {
+    #minimap { width: 160px; height: 159px; }
+    #help { display: none; }
+    #found { font-size: 17px; }
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="loading">
+  <div class="bee">🐝</div>
+  <div id="loadmsg">Building the world…</div>
+  <div class="bar"><div id="loadbar"></div></div>
+</div>
+
+<div id="start" class="hidden">
+  <div class="panel">
+    <h1><span>ReaderBee</span> World</h1>
+    <div id="who" class="hidden">
+      <p class="sub">Who's playing? Tap your name.</p>
+      <div id="whoList"></div>
+    </div>
+    <div id="pick">
+      <p class="sub" id="pickSub">Pick a friend and go explore! Find all the places and read their words.</p>
+      <button id="notMe" class="hidden"></button>
+      <div id="kids"></div>
+      <button id="play">Let's Go!</button>
+      <div class="keys">
+        <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows: walk</span>
+        <span><kbd>Shift</kbd> run</span>
+        <span><kbd>Space</kbd> jump</span>
+        <span><kbd>Q</kbd><kbd>E</kbd> turn camera</span>
+        <span><kbd>R</kbd> read it to me</span>
+        <span><kbd>B</kbd> bee shows the way</span>
+        <span><kbd>F</kbd> talk to friends, zip line &amp; balloon</span>
+        <span>🖱️ click the ground to walk there</span>
+        <span><kbd>T</kbd> day / night</span>
+        <span><kbd>M</kbd> map</span>
+        <span><kbd>C</kbd> change friend</span>
+      </div>
+    </div>
+    <a id="teacherLink" href="teacher.html">👩‍🏫 For teachers</a>
+  </div>
+</div>
+
+<div id="hud" class="hidden">
+  <div id="topLeft">
+    <div class="pills">
+      <div id="playerPill" class="pill hidden">👤 <span id="playerName"></span></div>
+      <div id="found" class="pill">⭐ <span id="foundN">0</span> / <span id="foundT">0</span> places</div>
+      <div id="lettersPill" class="pill" title="Alphabet hunt: find all 26 golden letters">🔤 <span id="lettersN">0</span> / 26</div>
+      <div id="ffPill" class="pill hidden" title="Fireflies caught">✨ <span id="ffN">0</span></div>
+    </div>
+    <div id="quest" class="hidden">
+      <div id="questLead">Can you find the</div>
+      <div id="questWord"></div>
+      <div class="qbtns"><button id="questSay">🔊 Hear it</button><button id="questHelp">🐝 Help <span class="key">(B)</span></button></div>
+    </div>
+  </div>
+  <div id="topRight"><button id="btnTime" title="Change the time of day (T)">☀️</button><button id="btnHome" title="Go home">🏠</button><button id="btnSound" title="Sound">🔊</button><button id="btnSettings" title="Settings">⚙️</button></div>
+  <div id="settings" class="hidden">
+    <h3>Picture quality</h3>
+    <div class="row" id="qualityBtns"><button data-q="auto">Auto</button><button data-q="high">High</button><button data-q="medium">Medium</button><button data-q="low">Low</button></div>
+    <h3>Time of day</h3>
+    <div class="row" id="timeBtns"><button data-t="0.29">🌅 Morning</button><button data-t="0.5">☀️ Noon</button><button data-t="0.735">🌇 Sunset</button><button data-t="0.93">🌙 Night</button><button id="timeRun">⏸ Stop time</button></div>
+    <h3>Reading voice</h3>
+    <div class="row"><select id="voicePick" aria-label="Reading voice"></select><button id="voiceTest">▶ Test</button></div>
+    <p class="note" id="voiceNote"></p>
+    <h3>Talking friends</h3>
+    <div class="row"><button id="aiToggle">🤖 Smart talk: on</button><button id="voiceToggle">🎤 Voice typing: on</button></div>
+    <p class="note" id="aiStatus"></p>
+    <div id="whoRow" class="hidden"><h3>Who's playing</h3><div class="row"><span id="whoName"></span><button id="changePlayer">Change</button></div></div>
+    <h3>Stars and letters</h3>
+    <div class="row" id="resetRow"><button id="resetStars">Start over</button><button id="closeSettings">Close</button></div>
+    <div class="row hidden" id="resetConfirm"><span>Erase all stars and letters?</span><button id="resetYes" class="danger">Yes, erase</button><button id="resetNo">No</button></div>
+  </div>
+  <div id="card" class="hidden">
+    <div id="cardPlace"></div>
+    <div id="cardWord"></div>
+    <div id="cardSentence"></div>
+    <button id="cardSpeak">🔊 Read it to me <span class="key">(R)</span></button>
+  </div>
+  <canvas id="minimap" width="520" height="516" title="Click a spot to go there"></canvas>
+  <div id="help">
+    <kbd>⬆</kbd><kbd>⬇</kbd><kbd>⬅</kbd><kbd>➡</kbd> walk · <kbd>Space</kbd> jump · <kbd>Shift</kbd> run<br />
+    🖱️ Click the ground to walk there · drag to look<br />
+    <kbd>F</kbd> 💬 talk, zip line, balloon · <kbd>R</kbd> 🔊 read<br />
+    <kbd>B</kbd> 🐝 help · <kbd>M</kbd> 🗺️ map · <kbd>T</kbd> 🌙 time · <kbd>H</kbd> hide
+  </div>
+  <div id="toast"></div>
+  <div id="prompt" class="hidden"></div>
+</div>
+
+<div id="bigmap" class="hidden"><canvas id="bigmapc" width="1236" height="1225"></canvas><div id="alpha"></div><div id="bigmapHint">Click a place to go there! · Press M to close</div><button id="bigClose" title="Close the map">✕</button></div>
+
+<div id="chat" class="hidden" role="dialog" aria-label="Talk with a friend">
+  <div class="chatTop">
+    <span id="chatFace"></span><span id="chatName"></span>
+    <button id="chatHear" class="round" title="Hear it again">🔊</button>
+    <button id="chatClose" class="round" title="Close">✕</button>
+  </div>
+  <div id="chatKid"></div>
+  <div id="chatSay"></div>
+  <div id="chatChoices"></div>
+  <div class="chatIn">
+    <button id="chatMic" class="round" title="Talk (voice typing)">🎤</button>
+    <input id="chatText" type="text" maxlength="200" placeholder="Type here…" autocomplete="off" spellcheck="true" enterkeyhint="send" />
+    <button id="chatSend" class="round" title="Send">➤</button>
+  </div>
+</div>
+
+<script>
+  // very old browsers can't load the game: say so instead of loading forever
+  if (!(window.HTMLScriptElement && HTMLScriptElement.supports && HTMLScriptElement.supports('importmap')))
+    document.getElementById('loadmsg').textContent = 'This browser is too old for ReaderBee World. Please update it, or try Chrome, Edge, Firefox or Safari 16.4+.';
+</script>
+<script type="module" src="src/main.js" onerror="document.getElementById('loadmsg').textContent = 'Could not load the game. Check the internet connection and reload the page.'"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+# secrets: the Anthropic API key, and later the Supabase keys
+.env
+.env.*
+!.env.example
+
+# system and tool files
+.DS_Store
+__pycache__/
+*.pyc
+node_modules/
+
+# Supabase CLI local state
+supabase/.branches/
+supabase/.temp/

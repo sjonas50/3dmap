@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>ReaderBee Teacher</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Andika:wght@400;700&family=Fredoka:wght@500;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --honey: #f6b81f;
+    --honey-dark: #9a6700;
+    --ink: #2a2118;
+    --paper: #fffaf0;
+    --muted: #6a5a40;
+    --line: #e4d9c2;
+    --knew: #cdeec4; --knew-ink: #1f5a1a;
+    --slow: #ffe89a; --slow-ink: #6a4b00;
+    --no: #ffd6d0; --no-ink: #8a2418;
+    --none: #f1ede4; --none-ink: #9a8f7c;
+  }
+  * { box-sizing: border-box; }
+  html { background: #f4ecda; }
+  body { margin: 0; font: 17px/1.45 Andika, system-ui, sans-serif; color: var(--ink); background: #f4ecda; }
+  [hidden] { display: none !important; }
+  h1, h2, h3, h4 { font-family: Fredoka, Andika, sans-serif; line-height: 1.15; margin: 0; }
+  a { color: var(--honey-dark); }
+  button, input, textarea, select { font: inherit; color: inherit; }
+  button { cursor: pointer; border: 2px solid var(--ink); border-radius: 12px; background: #fff; padding: 6px 14px; min-height: 40px; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button.primary { background: var(--honey); font-weight: 700; box-shadow: 0 3px 0 var(--ink); }
+  button.danger { background: #ffd9d4; }
+  .dim { color: var(--muted); }
+  small { font-size: 0.82em; }
+
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px max(16px, env(safe-area-inset-left)); background: var(--paper); border-bottom: 3px solid var(--ink); }
+  header h1 { font-size: 24px; }
+  header h1 span { color: var(--honey); -webkit-text-stroke: 1px var(--ink); }
+  header .grow { flex: 1; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  .card { background: var(--paper); border: 3px solid var(--ink); border-radius: 18px; padding: 16px 18px; box-shadow: 0 4px 0 var(--ink); }
+  .card h2 { font-size: 26px; }
+  .card h3 { font-size: 21px; margin-bottom: 8px; }
+  .card h4 { font-size: 17px; margin: 14px 0 6px; }
+  .bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .bar .grow { flex: 1; }
+  #className { border: 2px solid var(--line); border-radius: 10px; padding: 4px 10px; min-width: 0; width: 16em; background: #fff; }
+  .empty { font-size: 19px; margin: 6px 0 12px; }
+
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-size: 14px; color: var(--muted); font-weight: 700; }
+  td.num, th.num { text-align: right; }
+  td a { font-weight: 700; }
+  .lv { display: inline-block; border: 2px solid var(--ink); border-radius: 20px; padding: 0 10px; font-weight: 700; background: #fff2c4; white-space: nowrap; }
+  .lv.l1 { background: #f7efe0; } .lv.l2 { background: #fde9c4; } .lv.l3 { background: #fbe1a6; } .lv.l4 { background: #e2f1c5; }
+  .lv.l5 { background: #cdeec4; } .lv.l6 { background: #bfe6e8; } .lv.l7 { background: #d9d4f5; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+
+  .add { display: grid; gap: 6px; margin-top: 14px; }
+  .add textarea { width: 100%; border: 2px solid var(--ink); border-radius: 12px; padding: 8px 10px; resize: vertical; background: #fff; }
+  .add button { justify-self: start; }
+  .groups { display: grid; gap: 8px; }
+  .group b { margin-right: 6px; }
+  .words { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+  .words span { white-space: nowrap; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .confirm { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #fff2c4; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .confirm input { border: 2px solid var(--ink); border-radius: 10px; padding: 4px 10px; }
+
+  .head { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; }
+  .head .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .crumbs { margin: 0; }
+  .choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin: 8px 0 12px; }
+  .choice { text-align: left; display: grid; gap: 2px; padding: 10px 14px; border-radius: 14px; box-shadow: 0 3px 0 var(--ink); }
+  .choice b { font-size: 18px; }
+  .opts { display: grid; gap: 4px; margin-bottom: 8px; }
+  .opts label { display: flex; gap: 8px; align-items: center; }
+  .opts input { width: 20px; height: 20px; }
+  .steps { display: grid; gap: 6px; margin: 0; padding-left: 20px; }
+
+  .tiles { display: flex; flex-wrap: wrap; gap: 5px; }
+  .t { display: inline-block; min-width: 2.1em; text-align: center; padding: 2px 7px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.12); font-weight: 700; }
+  .t.knew { background: var(--knew); color: var(--knew-ink); }
+  .t.slow { background: var(--slow); color: var(--slow-ink); }
+  .t.not_yet { background: var(--no); color: var(--no-ink); }
+  .t.none { background: var(--none); color: var(--none-ink); font-weight: 400; }
+  .legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 15px; }
+  details > summary { cursor: pointer; }
+
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 14px; opacity: 0; transition: opacity 0.2s; pointer-events: none; max-width: calc(100vw - 32px); z-index: 30; }
+  #toast.show { opacity: 1; }
+
+  /* grown-ups only */
+  #gate { position: fixed; inset: 0; display: grid; place-content: center; padding: 16px; background: #f4ecda; z-index: 20; }
+  #gate form { background: var(--paper); border: 3px solid var(--ink); border-radius: 22px; padding: 22px 26px; box-shadow: 0 6px 0 var(--ink); display: grid; gap: 10px; max-width: 420px; text-align: center; }
+  #gate h2 { font-size: 26px; }
+  #gateQ { font: 700 40px Fredoka, Andika, sans-serif; }
+  #gateA { font-size: 28px; text-align: center; border: 3px solid var(--ink); border-radius: 14px; padding: 6px; width: 8ch; justify-self: center; }
+
+  /* the one-to-one check: big and clear for the child, quick to mark for the teacher */
+  #runner { position: fixed; inset: 0; z-index: 10; background: var(--paper); display: grid; grid-template-rows: auto 1fr auto auto; padding: 12px max(16px, env(safe-area-inset-left)) max(16px, env(safe-area-inset-bottom)); }
+  body.running { overflow: hidden; }
+  .rtop { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 18px; }
+  .rtop b { font-family: Fredoka, Andika, sans-serif; font-size: 22px; }
+  .rtop .grow { flex: 1; }
+  #rCard { display: grid; place-content: center; justify-items: center; gap: 10px; text-align: center; min-height: 0; }
+  #rAsk { color: var(--muted); font-size: 18px; }
+  #rItem { font: 700 min(22vh, 15vw)/1 Andika, sans-serif; letter-spacing: 0.02em; padding: 0.1em 0.3em; }
+  #rItem.letter { font-size: min(36vh, 34vw); }
+  #rItem.long { font-size: min(17vh, 10.5vw); }
+  #rHint { color: var(--muted); font-size: 18px; min-height: 1.5em; }
+  .rbtns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .rbtns button { min-height: 84px; font-size: 24px; font-weight: 700; border-width: 3px; border-radius: 18px; box-shadow: 0 4px 0 var(--ink); }
+  .rbtns .yes { background: var(--knew); }
+  .rbtns .slow { background: var(--slow); }
+  .rbtns .no { background: var(--no); }
+  kbd { font: 700 13px Andika, sans-serif; border: 1px solid var(--ink); border-bottom-width: 3px; border-radius: 6px; padding: 0 5px; margin-left: 6px; background: #fff; vertical-align: middle; }
+  .rsub { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 10px; }
+  #rDone { display: grid; place-content: center; gap: 14px; text-align: center; max-width: 760px; margin: 0 auto; }
+  #rDone .big { font-size: 26px; margin: 0; }
+  #rDone .row { justify-content: center; }
+  @media (hover: none) { kbd { display: none; } }
+  @media (max-width: 560px) { .rbtns button { font-size: 19px; min-height: 72px; } }
+
+  @media print {
+    html, body { background: #fff; }
+    header, .noprint, #toast, #runner, #gate { display: none !important; }
+    main { padding: 0; }
+    .card { box-shadow: none; border-width: 1px; break-inside: avoid; }
+    details { display: block; }
+    details > summary { display: none; }
+    details > * { display: block !important; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>ReaderBee</span> Teacher</h1>
+  <span class="grow dim" id="saved">Saved on this device only</span>
+  <a href="index.html">Open the game</a>
+</header>
+<main id="view"></main>
+
+<div id="runner" hidden>
+  <div class="rtop">
+    <b id="rWho"></b><span id="rWhat"></span><span class="grow"></span><span id="rCount" class="dim"></span>
+    <button id="rEnd">End check</button>
+  </div>
+  <div id="rCard">
+    <div id="rAsk"></div>
+    <div id="rItem"></div>
+    <div id="rHint"></div>
+  </div>
+  <div id="rDone" hidden>
+    <div id="rSummary"></div>
+    <div class="row">
+      <button id="rReport" class="primary">See the report</button>
+      <button id="rAgain">Check another student</button>
+      <button id="rBack">Undo the last answer</button>
+    </div>
+  </div>
+  <div id="rMarks">
+    <div class="rbtns">
+      <button id="rYes" class="yes">✓ Knew it<kbd>→</kbd></button>
+      <button id="rSlow" class="slow">🐢 Slow<kbd>↓</kbd></button>
+      <button id="rNo" class="no">✗ Not yet<kbd>←</kbd></button>
+    </div>
+    <div class="rsub">
+      <button id="rUndo">↶ Undo<kbd>⌫</kbd></button>
+      <span class="dim">Knew it = right within about 3 seconds · Slow = got it with effort</span>
+    </div>
+  </div>
+</div>
+
+<div id="gate" hidden>
+  <form id="gateForm" autocomplete="off">
+    <h2>For grown-ups</h2>
+    <p>Teacher tools have each child's reading results. Please answer to go on:</p>
+    <div id="gateQ"></div>
+    <input id="gateA" type="text" inputmode="numeric" pattern="[0-9]*" aria-label="Answer" />
+    <div class="row" style="justify-content: center"><button class="primary">Go on</button><a href="index.html">Back to the game</a></div>
+    <p id="gateMsg" class="dim"></p>
+  </form>
+</div>
+<div id="toast" role="status"></div>
+<script type="module" src="src/teacher.js"></script>
+</body>
+</html>
