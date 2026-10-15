@@ -121,6 +121,40 @@ Open **👩‍🏫 For teachers** on the start screen (or go to `http://localhos
 
 The Fry list is in `src/wordlists.js`, from sightwords.com's "Fry Sight Words Listed by Frequency". Printed editions differ slightly ("animal" or "animals"), so change a word there to match your school's list.
 
+## Backend: school accounts and shared results (Supabase)
+
+The database is built and tested on this computer; the teacher pages don't use it yet (signing in and syncing are the next step). It is plain Postgres on [Supabase](https://supabase.com), defined in `supabase/migrations/`:
+
+- **Reading content**, the same for every school and readable by anyone: letters, the 44 sounds (plus x and qu), 66 spellings and the sounds each can make, chunks (word families like -at, blends like bl-, prefixes and suffixes), words with their syllables and sound-by-sound parts (the tables are ready; filling them in is a later step), the Fry lists 1–300, skills in teaching order, and the six checks. `decodable_words()` finds the words a child can sound out from the spellings they know.
+- **School data**, private to each school: schools, staff, classes, which staff work in which class, students (a nickname only), and every check and answer. Answers can only be items of the check (a letter or a list word), so no free text is ever stored.
+- **Roles**, enforced inside the database (row-level security), so they hold whatever the client does:
+
+  | Role | Can |
+  | --- | --- |
+  | School admin | see every class in the school, add staff, delete classes and results |
+  | Teacher | manage their own classes: students, colleagues in the class, checks and results |
+  | Aide | see their classes and give checks; can't change the class list or delete results |
+  | Not signed in | read the reading content only |
+
+  Teachers will sign in with their school Google or Microsoft account. Students don't sign in.
+
+Run it locally (needs Docker):
+
+```bash
+supabase start      # the first time downloads the containers
+supabase db reset   # rebuild the database from the migrations
+supabase test db    # the role tests (supabase/tests)
+supabase stop
+```
+
+Studio, a web view of the tables, is at http://127.0.0.1:54323 while it runs. The content migration was written by `node supabase/content/build-content.mjs` from `src/wordlists.js`; to change content later, add a new migration.
+
+Going live, when you're ready:
+
+1. Create a project at supabase.com (a US region), then `supabase link --project-ref <your project ref>` and `supabase db push`.
+2. In Authentication → Providers, turn on Google and/or Azure (Microsoft) and add `teacher.html`'s address as a redirect URL.
+3. Before real students' results go in: sign Supabase's data processing agreement, publish a privacy notice with how long results are kept, and get each school's agreement (FERPA, COPPA's rules for schools, and state student-privacy laws). Many districts ask vendors to sign their data privacy agreement.
+
 ## Code layout
 
 - `serve.py` – the local web server, and the chat endpoint that talks to Claude (`/api/chat`, `/api/status`).
@@ -147,6 +181,7 @@ The Fry list is in `src/wordlists.js`, from sightwords.com's "Fry Sight Words Li
 - `teacher.html`, `src/teacher.js` – the teacher pages: class list, the one-to-one reading check, class and student reports, spreadsheets and backups.
 - `src/classroom.js` – the class data shared by the game and the teacher pages: students, checks and answers, levels, next steps, exports. Its records have the shape of the planned database tables.
 - `src/wordlists.js` – Fry words 1–300, the letters, and what each letter sound should sound like.
+- `supabase/` – the backend: `migrations/` (tables, roles, functions, content), `tests/` (who can see and change what), `content/build-content.mjs` (writes the content migration), and `config.toml` for the local stack.
 
 ## Performance
 
