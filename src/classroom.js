@@ -1,10 +1,9 @@
 // The class list and reading checks, shared by the game (who's playing) and teacher.html.
-// For now everything is kept in this browser, and teacher.html can save it to a backup file.
-// The records have the shape of the tables planned for the Supabase (Postgres) backend:
+// Everything is kept in this browser first. When a teacher links the class to their school account
+// (cloud.js), changed records are marked "unsynced" and sent to the school's Supabase project:
 //   students: { id, nickname, color, createdAt }
 //   sessions: { id, studentId, kind, startedAt, endedAt, options, responses: [{ item, mark, ms, at }] }
-// so moving to the server means uploading these rows, not changing how checks work.
-// Student names never leave the device: the talking friends only hear the game character's name.
+// Student names only ever go to the school's own account: the talking friends hear the game character's name.
 import { FRY, LETTERS, SOUNDS } from './wordlists.js';
 
 const KEY = 'readerbee-class';
@@ -74,6 +73,13 @@ export const progressKey = (base, studentId) => (studentId ? `${base}:${studentI
 
 const COLORS = ['#e8402f', '#2f7fd0', '#3e9b4f', '#c98a00', '#8a5ad0', '#e07a2f', '#1f9e9a', '#d04f8a'];
 const cleanName = (s) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, 30);
+/** Mark a record as changed since it was last sent (a count, so a change made while sending isn't lost). */
+const touch = (x) => { x.unsynced = (x.unsynced || 0) + 1; };
+
+export function renameClass(d, name) {
+  d.className = cleanName(name);
+  if (d.cloud) d.cloud.renamed = true;
+}
 
 /** Add students by name (first names or nicknames), skipping blanks and names already in the class. */
 export function addStudents(d, names) {
@@ -84,6 +90,7 @@ export function addStudents(d, names) {
     if (!nickname || have.has(nickname.toLowerCase())) continue;
     have.add(nickname.toLowerCase());
     const s = { id: uuid(), nickname, color: COLORS[d.students.length % COLORS.length], createdAt: Date.now() };
+    touch(s);
     d.students.push(s);
     added.push(s);
   }
@@ -94,12 +101,14 @@ export function renameStudent(d, id, name) {
   const nickname = cleanName(name), s = d.students.find((x) => x.id === id);
   if (!s || !nickname || d.students.some((x) => x !== s && x.nickname.toLowerCase() === nickname.toLowerCase())) return false;
   s.nickname = nickname;
+  touch(s);
   return true;
 }
-/** Remove a student with all their check results and their game progress on this device. */
+/** Remove a student with all their check results and their game progress on this device (and from the school account). */
 export function removeStudent(d, id) {
   d.students = d.students.filter((s) => s.id !== id);
   d.sessions = d.sessions.filter((c) => c.studentId !== id);
+  if (d.cloud) d.cloud.deleted = [...(d.cloud.deleted || []), id];
   for (const base of [PLACES_KEY, LETTERS_KEY]) try { localStorage.removeItem(progressKey(base, id)); } catch { /* ignore */ }
 }
 
@@ -136,10 +145,12 @@ export function answer(session, item, mark, ms) {
   const at = Date.now();
   session.responses.push({ item, mark, ms: Math.round(ms), at });
   session.endedAt = at;
+  touch(session);
 }
 export function undoAnswer(session) {
   session.responses.pop();
   session.endedAt = session.responses.at(-1)?.at ?? session.startedAt;
+  touch(session);
 }
 /** A check that ended without any answers leaves nothing behind. */
 export function finishSession(d, session) {
@@ -223,6 +234,78 @@ export function wordsToTeach(d, kind = 'fry1', n = 10) {
   return [...tally.values()].filter((t) => t.asked && t.knew < t.asked)
     .sort((a, b) => a.knew / a.asked - b.knew / b.asked || pos.get(a.word) - pos.get(b.word))
     .slice(0, n);
+}
+
+// ---------------------------------------------------------------------------------------------
+// the school account: the class on this device can be linked to a class there (cloud.js does the sending)
+
+/**
+ * Link this device to a class in the school account. With upload, this device's class becomes that class and
+ * everything on it is sent on the next sync; without, the device's class is replaced by the account's copy.
+ */
+export function link(d, { classId, className, schoolId, schoolName, role, userId }, { upload = false } = {}) {
+  d.cloud = { classId, schoolId, schoolName, role, userId, syncedAt: 0, deleted: [], renamed: false, people: {} };
+  d.className = className;
+  if (upload) for (const x of [...d.students, ...d.sessions]) touch(x);
+  else { d.students = []; d.sessions = []; }
+}
+export function unlink(d) {
+  delete d.cloud;
+}
+/** How many changes on this device haven't reached the school account yet. */
+export function pendingCount(d) {
+  if (!d.cloud) return 0;
+  return d.students.filter((s) => s.unsynced).length + d.sessions.filter((s) => s.unsynced && s.responses.length).length +
+    (d.cloud.deleted?.length || 0) + (d.cloud.renamed ? 1 : 0);
+}
+/** The arguments for the database's save_check() for one check. */
+export const checkPayload = (s) => ({
+  check_id: s.id, student: s.studentId, kind: s.kind, started_at: new Date(s.startedAt).toISOString(),
+  ended_at: new Date(s.endedAt).toISOString(), options: s.options, answers: s.responses.map(({ item, mark, ms, at }) => ({ item, mark, ms, at })),
+});
+
+function sessionFromServer(r) {
+  if (!CHECKS[r.kind]) return null;
+  const startedAt = Date.parse(r.started_at) || 0;
+  return {
+    id: r.id, studentId: r.student_id, kind: r.kind, startedAt, endedAt: Date.parse(r.ended_at) || startedAt,
+    options: { skipKnown: !!r.options?.skipKnown, stopAfter: Number(r.options?.stopAfter) || 0, skipped: Number(r.options?.skipped) || 0 },
+    givenBy: r.given_by || null,
+    responses: (r.responses || []).slice().sort((a, b) => a.seq - b.seq)
+      .map((x) => ({ item: x.item, mark: x.mark, ms: x.ms || 0, at: Date.parse(x.answered_at) || startedAt })),
+  };
+}
+
+/**
+ * Bring in the class as the school account has it: { className, students, sessions, role, people } in the
+ * database's shape. Changes on this device that haven't been sent yet win, and records keep their identity,
+ * so a check in progress keeps working. Students and checks deleted on another device go here too.
+ */
+export function applyServer(d, server) {
+  const gone = new Set(d.cloud.deleted || []);
+  const localStudents = new Map(d.students.map((s) => [s.id, s])), localSessions = new Map(d.sessions.map((s) => [s.id, s]));
+  const students = [], sessions = [];
+  for (const r of server.students) {
+    if (gone.has(r.id)) continue;
+    const s = localStudents.get(r.id);
+    if (s?.unsynced) { students.push(s); continue; }
+    const fresh = { id: r.id, nickname: r.nickname, color: r.color, createdAt: Date.parse(r.created_at) || Date.now() };
+    students.push(s ? Object.assign(s, fresh) : fresh);
+  }
+  for (const s of d.students) if (s.unsynced && !students.includes(s)) students.push(s);
+  for (const r of server.sessions) {
+    const s = localSessions.get(r.id);
+    if (s?.unsynced) { sessions.push(s); continue; }
+    const fresh = sessionFromServer(r);
+    if (fresh) sessions.push(s ? Object.assign(s, fresh) : fresh);
+  }
+  for (const s of d.sessions) if (s.unsynced && !sessions.includes(s)) sessions.push(s);
+  const ids = new Set(students.map((s) => s.id));
+  d.students = students;
+  d.sessions = sessions.filter((s) => ids.has(s.studentId)).sort((a, b) => a.startedAt - b.startedAt);
+  if (!d.cloud.renamed && server.className) d.className = server.className;
+  if ('role' in server) d.cloud.role = server.role;
+  if (server.people) d.cloud.people = server.people;
 }
 
 // ---------------------------------------------------------------------------------------------

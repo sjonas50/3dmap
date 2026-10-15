@@ -1,19 +1,39 @@
-// Teacher tools: the class list, the one-to-one reading check, and reports. The data lives in classroom.js.
+// Teacher tools: the class list, the one-to-one reading check, and reports. The data lives in classroom.js;
+// signing in to the school account and syncing are in cloud.js.
 import {
-  CHECKS, LETTER_KINDS, FRY_KINDS, LEVELS, MARKS, load, save, addStudents, renameStudent, removeStudent, startSession,
+  CHECKS, LETTER_KINDS, FRY_KINDS, LEVELS, MARKS, load, save, addStudents, renameStudent, removeStudent, renameClass, startSession,
   answer, undoAnswer, finishSession, summary, nextSteps, groupsByLevel, wordsToTeach, summaryCSV, answersCSV, backupJSON, readBackup,
+  link, unlink, pendingCount,
 } from './classroom.js';
+import { Cloud } from './cloud.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const day = (t) => (t ? new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '–');
 const byName = (a, b) => a.nickname.localeCompare(b.nickname, undefined, { sensitivity: 'base' });
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const levelBadge = (lv) => (lv ? `<span class="lv l${lv.n}">Level ${lv.n} · ${esc(lv.name)}</span>` : '<span class="dim">Not checked yet</span>');
 const tile = (x, r) => `<span class="t ${r ? r.mark : 'none'}" title="${esc(x)}: ${r ? `${MARKS[r.mark]}, ${day(r.at)}` : 'not checked'}">${esc(x)}</span>`;
 
 let data = load();
 let openSetupFor = null; // a student whose check menu should open when their page shows
-const commit = () => { if (!save(data)) toast('Could not save. This browser is blocking storage (a private window?).'); };
+const cloud = new Cloud();
+let syncTimer = 0;
+
+/** Save on this device, and send to the school account soon after (a burst of changes goes in one sync). */
+function commit() {
+  if (!save(data)) toast('Could not save. This browser is blocking storage (a private window?).');
+  if (data.cloud && cloud.user) {
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(syncNow, 1500);
+  }
+  status();
+}
+/** While a check is running only send; bring in other devices' changes afterwards. */
+function syncNow() {
+  clearTimeout(syncTimer);
+  return cloud.sync(data, () => save(data), { pull: !run });
+}
 
 let toastT = 0;
 function toast(text) {
@@ -77,13 +97,21 @@ function gate() {
 // ---------------------------------------------------------------------------------------------
 // pages: #  (the class)  and  #student=<id>
 
+let shown = ''; // what the page shows, so a sync only redraws it when something changed
+const signature = () => JSON.stringify([data.className, data.cloud?.role, data.students.map((s) => [s.id, s.nickname, s.color]),
+  data.sessions.map((s) => [s.id, s.responses.length, s.responses.at(-1)?.mark])]);
+
 function route() {
   const m = location.hash.match(/^#student=([\w-]+)$/);
   const s = m && data.students.find((x) => x.id === m[1]);
   if (s) studentView(s);
   else classView();
+  shown = signature();
 }
 addEventListener('hashchange', () => { route(); scrollTo(0, 0); });
+
+/** Aides give checks but can't change the class list (the school account would refuse anyway). */
+const isAide = () => data.cloud?.role === 'aide';
 
 function classView() {
   document.title = 'ReaderBee Teacher';
@@ -100,18 +128,21 @@ function classView() {
 
   const groups = groupsByLevel(data).map((g) => `<div class="group">${levelBadge(g.level)} <b>${g.students.length}</b>
     ${g.students.slice().sort(byName).map((s) => `<a href="#student=${esc(s.id)}">${esc(s.nickname)}</a>`).join(', ')}</div>`).join('');
+  const where = data.cloud ? `on this device and in ${esc(data.cloud.schoolName || 'your school')}’s account` : 'in this browser on this device';
 
   $('view').innerHTML = `
     <section class="card">
-      <div class="bar"><h2>Your class</h2><input id="className" placeholder="Class name (optional)" value="${esc(data.className)}" maxlength="30" aria-label="Class name" /></div>
+      <div class="bar"><h2>Your class</h2><input id="className" placeholder="Class name (optional)" value="${esc(data.className)}" maxlength="30" aria-label="Class name" ${isAide() ? 'readonly' : ''} /></div>
       ${rows.length ? table : `<p class="empty">Add your students, then give each one a short reading check: capital and lowercase letters,
         letter sounds, and Fry sight words. Students then tap their name in the game, and each one gets their own stars and letters.</p>`}
+      ${isAide() ? '<p class="dim">You’re an aide in this class: you can give checks; the class’s teacher manages the class list.</p>' : `
       <form id="addForm" class="add">
         <label for="newNames"><b>Add students</b>, one name per line. First names or nicknames are enough.</label>
         <textarea id="newNames" rows="3" placeholder="Maya&#10;Leo&#10;Ava"></textarea>
         <button class="primary">Add students</button>
-      </form>
+      </form>`}
     </section>
+    <div id="accountBox"></div>
     ${rows.length ? `<section class="card"><h3>Groups by level</h3><div class="groups">${groups}</div>
       <p class="dim">Levels: ${LEVELS.map((l) => `${l.n} ${esc(l.name)} (${esc(l.rule)})`).join(' · ')}. Only quick, correct answers count.</p></section>
     <section class="card"><div class="bar"><h3>Words to teach next</h3><select id="wtKind" aria-label="Word list">
@@ -119,7 +150,8 @@ function classView() {
       <p class="dim">The words the fewest of your checked students know.</p><div id="wtList" class="words"></div></section>` : ''}
     <section class="card">
       <h3>Save and share</h3>
-      <p class="dim">Results are stored in this browser on this device. Save a backup now and then: clearing the browser's data would erase them.</p>
+      <p class="dim">Results are stored ${where}.${data.cloud ? '' : ' Save a backup now and then: clearing the browser’s data would erase them.'}
+        Spreadsheets and backups include students’ nicknames, so keep them somewhere safe.</p>
       <div class="row">
         <button id="dlSummary" ${rows.length ? '' : 'disabled'}>Download summary (spreadsheet)</button>
         <button id="dlAnswers" ${data.sessions.length ? '' : 'disabled'}>Download every answer (spreadsheet)</button>
@@ -130,13 +162,13 @@ function classView() {
       <div id="restoreBox"></div>
     </section>`;
 
-  $('className').onchange = (e) => { data.className = e.target.value.trim().slice(0, 30); commit(); toast('Saved'); };
-  $('addForm').onsubmit = (e) => {
+  $('className').onchange = (e) => { renameClass(data, e.target.value); commit(); toast('Saved'); };
+  if ($('addForm')) $('addForm').onsubmit = (e) => {
     e.preventDefault();
     const added = addStudents(data, $('newNames').value.split(/\r?\n|,/));
     commit();
-    toast(added.length ? `Added ${added.length} student${added.length > 1 ? 's' : ''}` : 'Those names are already in the class');
-    classView();
+    toast(added.length ? `Added ${plural(added.length, 'student')}` : 'Those names are already in the class');
+    route();
   };
   for (const b of $('view').querySelectorAll('[data-check]')) b.onclick = () => { openSetupFor = b.dataset.check; location.hash = `student=${b.dataset.check}`; };
   if ($('wtKind')) {
@@ -158,10 +190,12 @@ function classView() {
     if (!f) return;
     let next;
     try { next = readBackup(await f.text()); } catch (err) { toast(err.message); return; }
-    const plural = (n) => `${n} student${n === 1 ? '' : 's'}`;
-    confirmIn($('restoreBox'), `<span>Replace this class (${plural(data.students.length)}) with the backup${next.className ? ` “${esc(next.className)}”` : ''} (${plural(next.students.length)})?</span>`,
-      'Yes, replace', () => { data = next; commit(); toast('Class restored'); classView(); });
+    confirmIn($('restoreBox'), `<span>Replace this class (${plural(data.students.length, 'student')}) with the backup${next.className ? ` “${esc(next.className)}”` : ''}
+      (${plural(next.students.length, 'student')})?${data.cloud ? ' The school account keeps its copy, and this device stops syncing with it.' : ''}</span>`,
+      'Yes, replace', () => { data = next; commit(); toast('Class restored'); route(); });
   };
+  accountMode = '';
+  renderAccount();
 }
 
 function studentView(s) {
@@ -188,6 +222,7 @@ function studentView(s) {
   ].join('');
   const history = data.sessions.filter((x) => x.studentId === s.id && x.responses.length).sort((a, b) => b.startedAt - a.startedAt);
   const tally = (x, mark) => x.responses.filter((r) => r.mark === mark).length;
+  const givenBy = (x) => (x.givenBy && x.givenBy !== cloud.user?.id && data.cloud?.people?.[x.givenBy] ? `by ${esc(data.cloud.people[x.givenBy])}` : '');
 
   $('view').innerHTML = `
     <p class="crumbs noprint"><a href="#">← Class</a></p>
@@ -196,7 +231,7 @@ function studentView(s) {
         <div><h2>${esc(s.nickname)}</h2><p>${levelBadge(m.level)}${m.level ? ` <span class="dim">(${esc(m.level.rule)})</span>` : ''}</p>
           <p class="dim">Last checked: ${day(m.last)}</p></div>
         <div class="actions noprint"><button id="startCheck" class="primary">Start a reading check</button><button id="print">Print</button>
-          <button id="rename">Rename</button><button id="remove" class="danger">Remove</button></div>
+          ${isAide() ? '' : '<button id="rename">Rename</button><button id="remove" class="danger">Remove</button>'}</div>
       </div>
       <div id="confirmBox" class="noprint"></div>
     </section>
@@ -218,7 +253,8 @@ function studentView(s) {
       <thead><tr><th>Date</th><th>Check</th><th class="num">Asked</th><th class="num">Knew it</th><th class="num">Slow</th><th class="num">Not yet</th><th></th></tr></thead>
       <tbody>${history.map((x) => `<tr><td>${day(x.startedAt)}</td><td>${esc(CHECKS[x.kind].title)}</td><td class="num">${x.responses.length}</td>
         <td class="num">${tally(x, 'knew')}</td><td class="num">${tally(x, 'slow')}</td><td class="num">${tally(x, 'not_yet')}</td>
-        <td class="dim">${x.options.skipped ? `skipped ${x.options.skipped} already known` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<p class="dim">No checks yet.</p>'}</section>
+        <td class="dim">${[x.options.skipped ? `skipped ${x.options.skipped} already known` : '', givenBy(x)].filter(Boolean).join(' · ')}</td></tr>`).join('')}</tbody></table></div>`
+      : '<p class="dim">No checks yet.</p>'}</section>
     <p class="legend"><span>${tile('a', { mark: 'knew' })} knew it</span><span>${tile('a', { mark: 'slow' })} slow</span>
       <span>${tile('a', { mark: 'not_yet' })} not yet</span><span>${tile('a', null)} not checked</span></p>`;
   openSetupFor = null;
@@ -228,6 +264,7 @@ function studentView(s) {
     b.onclick = () => startRun(s, b.dataset.start, { skipKnown: $('skipKnown').checked, stop: $('stopRule').checked });
   }
   $('print').onclick = () => print();
+  if (isAide()) return;
   $('rename').onclick = () => {
     $('confirmBox').innerHTML = `<form class="confirm" id="renameForm"><label for="newName">New name</label>
       <input id="newName" value="${esc(s.nickname)}" maxlength="30" /><button class="primary">Save</button><button type="button" data-no>Cancel</button></form>`;
@@ -240,8 +277,176 @@ function studentView(s) {
       route();
     };
   };
-  $('remove').onclick = () => confirmIn($('confirmBox'), `<span>Remove ${esc(s.nickname)}, with all their check results and their game progress on this device? This can't be undone.</span>`,
+  $('remove').onclick = () => confirmIn($('confirmBox'), `<span>Remove ${esc(s.nickname)}, with all their check results${data.cloud ? ', here and in the school account' : ''}, and their game progress on this device? This can't be undone.</span>`,
     'Yes, remove', () => { removeStudent(data, s.id); commit(); toast(`Removed ${s.nickname}`); location.hash = ''; });
+}
+
+// ---------------------------------------------------------------------------------------------
+// the school account: sign in, choose or start a school, and link this device's class to a class there
+
+let accountMode = ''; // what the account card shows, so syncing doesn't keep redrawing it
+
+const accountBar = () => `<div class="bar"><h3>School account</h3><span class="grow"></span>
+  <span class="dim">Signed in as ${esc(cloud.name)}</span><button id="signOut">Sign out</button></div>`;
+const accountMsg = (html) => { const m = $('accountMsg'); if (m) m.innerHTML = html; };
+
+function renderAccount() {
+  const box = $('accountBox');
+  if (!box) return;
+  const mode = !cloud.enabled ? 'off' : !cloud.user ? 'signed-out' : `${cloud.user.id}:${data.cloud ? `linked:${data.cloud.role}` : 'choose'}`;
+  if (mode === accountMode) return;
+  accountMode = mode;
+  if (mode === 'off') { box.innerHTML = ''; return; }
+  if (mode === 'signed-out') {
+    box.innerHTML = `<section class="card">
+      <h3>School account</h3>
+      <p>Sign in to keep this class in your school’s account and use it on any device. Nicknames and results go only to your school’s account.</p>
+      <div class="row"><button class="primary" data-provider="google">Sign in with Google</button><button class="primary" data-provider="azure">Sign in with Microsoft</button></div>
+      <form id="emailForm" class="row signin"><input id="emailAddr" type="email" required placeholder="you@school.org" autocomplete="email" aria-label="Email address" />
+        <button>Email me a sign-in link</button></form>
+      ${cloud.local ? `<details class="signin"><summary>Test sign-in (only while the school account runs on this computer)</summary>
+        <form id="testForm" class="row"><input id="testEmail" type="email" required placeholder="teacher@example.test" aria-label="Test email" />
+        <input id="testPassword" type="password" required minlength="6" placeholder="Password" aria-label="Test password" /><button>Sign in</button></form></details>` : ''}
+      <p id="accountMsg" class="dim"></p></section>`;
+    for (const b of box.querySelectorAll('[data-provider]')) b.onclick = () => cloud.signIn(b.dataset.provider).catch((e) => accountMsg(esc(e.message)));
+    $('emailForm').onsubmit = async (e) => {
+      e.preventDefault();
+      try { await cloud.emailLink($('emailAddr').value.trim()); accountMsg('Check your email for the sign-in link, and open it on this device.'); }
+      catch (err) { accountMsg(esc(err.message)); }
+    };
+    if ($('testForm')) $('testForm').onsubmit = async (e) => {
+      e.preventDefault();
+      try { await cloud.testSignIn($('testEmail').value.trim(), $('testPassword').value); } catch (err) { accountMsg(esc(err.message)); }
+    };
+    return;
+  }
+  if (data.cloud) {
+    const role = { admin: 'a school admin', teacher: 'its teacher', aide: 'an aide in it' }[data.cloud.role];
+    box.innerHTML = `<section class="card">${accountBar()}
+      <p>This class is saved in <b>${esc(data.cloud.schoolName || 'your school')}</b>${role ? ` (you’re ${role})` : ''}. Checks are saved on this device first and sent
+        when there’s a connection, so they’re safe without Wi-Fi.</p>
+      <div class="row"><button id="syncNow">Sync now</button><button id="otherClass">Open another class</button></div>
+      <div id="accountMsg" class="dim"></div></section>`;
+    $('syncNow').onclick = () => syncNow();
+    $('otherClass').onclick = () => {
+      const n = pendingCount(data), go = () => { clearClass(); route(); };
+      if (!n) go();
+      else confirmIn($('accountMsg'), `<span>${plural(n, 'change')} on this device haven’t reached the school account yet (Sync now first). Open another class anyway?</span>`, 'Open another class', go);
+    };
+  } else {
+    box.innerHTML = `<section class="card">${accountBar()}<div id="schoolList"><p class="dim">Finding your school…</p></div><div id="accountMsg" class="dim"></div></section>`;
+    loadSchools();
+  }
+  $('signOut').onclick = () => {
+    const n = pendingCount(data);
+    const go = async () => { if (data.cloud) clearClass(); await cloud.signOut(); toast('Signed out'); route(); };
+    if (!data.cloud) { go(); return; }
+    confirmIn($('accountMsg'), `<span>Sign out? This class leaves this device; it stays in your school account.${n ? ` ${plural(n, 'change')} haven’t been sent yet and would be lost.` : ''}</span>`, 'Sign out', go);
+  };
+}
+
+/** Take the class off this device (it stays in the school account). */
+function clearClass() {
+  unlink(data);
+  data.students = [];
+  data.sessions = [];
+  data.className = '';
+  commit();
+}
+
+async function loadSchools() {
+  let schools, classes;
+  try { [schools, classes] = await Promise.all([cloud.schools(), cloud.classes()]); } catch (e) {
+    const list = $('schoolList');
+    if (list) { list.innerHTML = `<p>Couldn’t reach your school account: ${esc(e.message)} <button id="retry">Try again</button></p>`; $('retry').onclick = loadSchools; }
+    return;
+  }
+  const list = $('schoolList');
+  if (!list) return; // the page changed meanwhile
+  const here = data.students.length, name = data.className || 'My class';
+  list.innerHTML = `${schools.length ? '<p>Open one of your classes on this device, or save the class that’s on this device to your school.</p>' : `<p>You’re not part of a school yet.
+      Ask your school’s admin to add you (with the email you signed in with), or start your school here: you’ll be its admin and can add colleagues.</p>`}
+    ${schools.map((sc) => `<div class="school"><h4>${esc(sc.name)}</h4><div class="row">
+      ${classes.filter((c) => c.school_id === sc.id).map((c) => `<button data-open="${esc(c.id)}">Open ${esc(c.name)}</button>`).join('')}
+      <button class="primary" data-save="${esc(sc.id)}">${here ? `Save “${esc(name)}” (${plural(here, 'student')}) here` : 'Start a new class here'}</button></div></div>`).join('')}
+    <details ${schools.length ? '' : 'open'}><summary>Start a school</summary>
+      <form id="newSchool" class="row signin"><input id="schoolName" required maxlength="100" placeholder="School name" aria-label="School name" /><button>Start a school</button></form></details>`;
+  const school = (id) => schools.find((s) => s.id === id);
+  for (const b of list.querySelectorAll('[data-open]')) {
+    const c = classes.find((x) => x.id === b.dataset.open);
+    b.onclick = () => openClass(c, school(c.school_id));
+  }
+  for (const b of list.querySelectorAll('[data-save]')) {
+    const sc = school(b.dataset.save);
+    b.onclick = () => (here ? confirmIn($('accountMsg'), `<span>Save ${plural(here, 'student')} and their results to ${esc(sc.name)}’s account? Only staff your school adds can see them.</span>`,
+      'Save to the school account', () => saveClassTo(sc)) : saveClassTo(sc));
+  }
+  $('newSchool').onsubmit = async (e) => {
+    e.preventDefault();
+    try { await cloud.createSchool($('schoolName').value.trim()); toast('School started'); loadSchools(); } catch (err) { accountMsg(esc(err.message)); }
+  };
+}
+
+async function saveClassTo(sc) {
+  try {
+    const className = data.className || 'My class';
+    const classId = await cloud.createClass(sc.id, className);
+    link(data, { classId, className, schoolId: sc.id, schoolName: sc.name, role: 'teacher', userId: cloud.user.id }, { upload: true });
+    commit();
+    route();
+    await syncNow();
+    if (cloud.state === 'idle') toast(`Saved to ${sc.name}`);
+  } catch (e) { accountMsg(esc(e.message)); }
+}
+
+function openClass(c, sc) {
+  const go = async () => {
+    link(data, { classId: c.id, className: c.name, schoolId: sc.id, schoolName: sc.name, role: null, userId: cloud.user.id });
+    commit();
+    route();
+    await syncNow();
+  };
+  if (!data.students.length && !data.sessions.length) { go(); return; }
+  confirmIn($('accountMsg'), `<span>Open ${esc(c.name)} on this device? The class that’s on this device now (${plural(data.students.length, 'student')}) will be replaced:
+    save a backup first if you want to keep it.</span>`, 'Open it', go);
+}
+
+const ago = (t) => (!t ? '' : Date.now() - t < 60000 ? 'just now' : Date.now() - t < 3600000 ? `${Math.round((Date.now() - t) / 60000)} min ago`
+  : `at ${new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`);
+
+/** The line at the top: where the class is saved, and whether it's synced. */
+function status() {
+  let text = 'Saved on this device only', warn = false;
+  if (data.cloud) {
+    const n = pendingCount(data), changes = n ? plural(n, 'change') : '';
+    if (!cloud.enabled) text = `Saved on this device${n ? `, ${changes} to send when the school account is reachable` : ''}`;
+    else if (!cloud.user) { text = 'Signed out: changes stay on this device until you sign in'; warn = true; }
+    else if (cloud.state === 'syncing') text = 'Syncing…';
+    else if (cloud.state === 'offline') { text = `Offline: saved on this device${n ? `, ${changes} to send` : ''}`; warn = true; }
+    else if (cloud.state === 'error') { text = `Not synced: ${cloud.error}`; warn = true; }
+    else text = n ? `${changes} waiting to sync` : `Synced with ${data.cloud.schoolName || 'your school account'} ${ago(data.cloud.syncedAt)}`;
+  }
+  $('saved').textContent = text;
+  $('saved').classList.toggle('warn', warn);
+}
+
+function onCloudChange() {
+  // signed in as someone other than the person who linked this class: keep it here, but stop syncing it
+  if (data.cloud && cloud.user && data.cloud.userId !== cloud.user.id) {
+    unlink(data);
+    commit();
+    toast('Signed in as someone else, so this class is now on this device only');
+  }
+  if (cloud.gone && data.cloud) {
+    unlink(data);
+    commit();
+    toast('This class isn’t in your school account any more, so it’s kept on this device only');
+    cloud.gone = false;
+  }
+  status();
+  // redraw after a sync brought in changes, unless a check is running or someone is typing
+  if (!run && signature() !== shown && !document.activeElement?.matches?.('input, textarea, select')) route();
+  else renderAccount();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -328,9 +533,9 @@ function endEarly() {
 function closeRun(to) {
   if (!run) return;
   finishSession(data, run.session);
-  commit();
   const s = run.s;
   run = null;
+  commit(); // the sync after a check also brings in other devices' changes
   $('runner').hidden = true;
   document.body.classList.remove('running');
   const hash = to === 'class' ? '' : `#student=${s.id}`;
@@ -355,5 +560,16 @@ addEventListener('keydown', (e) => {
 });
 // another tab (the game, or a second teacher tab) may change the class: show the latest
 addEventListener('storage', (e) => { if (e.key === 'readerbee-class' && !run) { data = load(); route(); } });
+// bring in other devices' checks now and then, and send anything waiting when the connection comes back
+addEventListener('online', () => { if (data.cloud) syncNow(); });
+setInterval(() => { if (data.cloud && cloud.user && !run && !document.hidden) syncNow(); }, 120000);
+setInterval(status, 30000);
 
-gate().then(route);
+gate().then(async () => {
+  route();
+  status();
+  if (!(await cloud.init())) { status(); return; }
+  cloud.onChange = onCloudChange;
+  onCloudChange();
+  if (data.cloud && cloud.user) syncNow();
+});
