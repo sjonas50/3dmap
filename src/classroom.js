@@ -5,6 +5,7 @@
 //   sessions: { id, studentId, kind, startedAt, endedAt, options, responses: [{ item, mark, ms, at }] }
 // Student names only ever go to the school's own account: the talking friends hear the game character's name.
 import { FRY, LETTERS, SOUNDS } from './wordlists.js';
+import { LANDMARKS } from './mapdata.js';
 
 const KEY = 'readerbee-class';
 /** Where the game saves stars and golden letters (each student gets their own copy, see progressKey). */
@@ -19,6 +20,8 @@ export const CHECKS = {
   fry1: { title: 'Fry words 1–100', short: 'Fry 1–100', ask: 'Read this word.', items: FRY.slice(0, 100), stopAfter: 5 },
   fry2: { title: 'Fry words 101–200', short: 'Fry 101–200', ask: 'Read this word.', items: FRY.slice(100, 200), stopAfter: 5 },
   fry3: { title: 'Fry words 201–300', short: 'Fry 201–300', ask: 'Read this word.', items: FRY.slice(200, 300), stopAfter: 5 },
+  // the places on the island, written in capitals as the game shows them
+  places: { title: 'Island words', short: 'Island words', ask: 'Read this word.', items: LANDMARKS.map((l) => l.word.toLowerCase()), shuffle: true, show: (x) => x.toUpperCase() },
 };
 export const LETTER_KINDS = ['capitals', 'lowercase', 'sounds'], FRY_KINDS = ['fry1', 'fry2', 'fry3'];
 
@@ -157,30 +160,40 @@ export function finishSession(d, session) {
   if (!session.responses.length) d.sessions = d.sessions.filter((s) => s !== session);
 }
 
-/** The latest answer for each item of one kind of check: Map(item -> { item, mark, ms, at }). */
-export function itemStatus(d, studentId, kind) {
+const fromGame = (s) => s.options?.source === 'game';
+
+/**
+ * The latest answer for each item of one kind of check: Map(item -> { item, mark, ms, at }). Teacher checks
+ * only, unless game is set: then only answers from the game.
+ */
+export function itemStatus(d, studentId, kind, { game = false } = {}) {
   const st = new Map();
   for (const s of d.sessions) {
-    if (s.studentId !== studentId || s.kind !== kind) continue;
+    if (s.studentId !== studentId || s.kind !== kind || fromGame(s) !== game) continue;
     for (const r of s.responses) if (!(st.get(r.item)?.at > r.at)) st.set(r.item, r);
   }
   return st;
 }
 
-/** Everything known about one student: per check kind, counts for the level, the level, and the last check date. */
+/** Count the latest answers by mark. */
+function tally(status, total) {
+  const k = { status, knew: 0, slow: 0, notYet: 0, asked: status.size, total, last: 0 };
+  for (const r of status.values()) {
+    if (r.mark === 'knew') k.knew++;
+    else if (r.mark === 'slow') k.slow++;
+    else k.notYet++;
+    k.last = Math.max(k.last, r.at);
+  }
+  return k;
+}
+
+/** Everything known about one student from teacher checks: per check kind, counts for the level, the level, and the last check date. */
 export function summary(d, studentId) {
   const kinds = {};
   let last = 0;
   for (const kind of Object.keys(CHECKS)) {
-    const status = itemStatus(d, studentId, kind);
-    const k = { status, knew: 0, slow: 0, notYet: 0, asked: status.size, total: CHECKS[kind].items.length };
-    for (const r of status.values()) {
-      if (r.mark === 'knew') k.knew++;
-      else if (r.mark === 'slow') k.slow++;
-      else k.notYet++;
-      last = Math.max(last, r.at);
-    }
-    kinds[kind] = k;
+    kinds[kind] = tally(itemStatus(d, studentId, kind), CHECKS[kind].items.length);
+    last = Math.max(last, kinds[kind].last);
   }
   const counts = { capitals: kinds.capitals.knew, lowercase: kinds.lowercase.knew, sounds: kinds.sounds.knew, fry: FRY_KINDS.reduce((n, k) => n + kinds[k].knew, 0) };
   const checked = Object.values(kinds).some((k) => k.asked);
@@ -237,6 +250,34 @@ export function wordsToTeach(d, kind = 'fry1', n = 10) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// answers from the game: the child taps one of three choices (a place's word, or the little letter that goes with
+// a golden one). They are kept apart from teacher checks and never count towards a level: a lucky guess is
+// possible, so a teacher check confirms. mode says how the game asked: 'map', 'map-listen', 'read', 'listen', 'letter'.
+
+/** Record one answer from the game. Answers go into one session per student, kind, way of asking and day. */
+export function recordGame(d, studentId, kind, item, mark, ms, mode) {
+  const now = Date.now(), today = new Date(now).toDateString();
+  let s = d.sessions.find((x) => x.studentId === studentId && x.kind === kind && fromGame(x) && x.options.mode === mode &&
+    new Date(x.startedAt).toDateString() === today);
+  if (!s) {
+    s = { id: uuid(), studentId, kind, startedAt: now, endedAt: now, options: { source: 'game', mode, skipKnown: false, stopAfter: 0, skipped: 0 }, responses: [] };
+    d.sessions.push(s);
+  }
+  answer(s, item, mark, ms);
+  return s;
+}
+/** What the game has seen of a student: the latest answer for each island word and little letter, and when they last played. */
+export function gameSummary(d, studentId) {
+  const kinds = {};
+  for (const kind of ['places', 'lowercase']) kinds[kind] = tally(itemStatus(d, studentId, kind, { game: true }), CHECKS[kind].items.length);
+  return { kinds, last: Math.max(kinds.places.last, kinds.lowercase.last), any: kinds.places.asked + kinds.lowercase.asked > 0 };
+}
+/** Island words the game should come back to: answered, but not yet right first time. */
+export function wordsToReview(d, studentId) {
+  return [...itemStatus(d, studentId, 'places', { game: true }).values()].filter((r) => r.mark !== 'knew').map((r) => r.item);
+}
+
+// ---------------------------------------------------------------------------------------------
 // the school account: the class on this device can be linked to a class there (cloud.js does the sending)
 
 /**
@@ -269,7 +310,8 @@ function sessionFromServer(r) {
   const startedAt = Date.parse(r.started_at) || 0;
   return {
     id: r.id, studentId: r.student_id, kind: r.kind, startedAt, endedAt: Date.parse(r.ended_at) || startedAt,
-    options: { skipKnown: !!r.options?.skipKnown, stopAfter: Number(r.options?.stopAfter) || 0, skipped: Number(r.options?.skipped) || 0 },
+    options: { skipKnown: !!r.options?.skipKnown, stopAfter: Number(r.options?.stopAfter) || 0, skipped: Number(r.options?.skipped) || 0,
+      ...(r.options?.source === 'game' ? { source: 'game', mode: String(r.options.mode || '').slice(0, 12) } : {}) },
     givenBy: r.given_by || null,
     responses: (r.responses || []).slice().sort((a, b) => a.seq - b.seq)
       .map((x) => ({ item: x.item, mark: x.mark, ms: x.ms || 0, at: Date.parse(x.answered_at) || startedAt })),
@@ -341,9 +383,10 @@ export function summaryCSV(d) {
 /** Every answer ever given, one row each. */
 export function answersCSV(d) {
   const names = new Map(d.students.map((s) => [s.id, s.nickname]));
-  const rows = [['Student', 'Check', 'Item', 'Answer', 'Seconds', 'When']];
+  const rows = [['Student', 'Check', 'Item', 'Answer', 'Seconds', 'When', 'How']];
   for (const s of d.sessions) {
-    for (const r of s.responses) rows.push([names.get(s.studentId) ?? '', CHECKS[s.kind]?.title ?? s.kind, r.item, MARKS[r.mark] ?? r.mark, (r.ms / 1000).toFixed(1), stamp(r.at, true)]);
+    const how = fromGame(s) ? `game (${s.options.mode})` : 'teacher check';
+    for (const r of s.responses) rows.push([names.get(s.studentId) ?? '', CHECKS[s.kind]?.title ?? s.kind, r.item, MARKS[r.mark] ?? r.mark, (r.ms / 1000).toFixed(1), stamp(r.at, true), how]);
   }
   return csv(rows);
 }
@@ -361,7 +404,8 @@ export function readBackup(text) {
   const ids = new Set(students.map((s) => s.id));
   const sessions = d.sessions.filter((s) => str(s?.id) && ids.has(s.studentId) && CHECKS[s.kind] && Array.isArray(s.responses)).map((s) => ({
     id: s.id, studentId: s.studentId, kind: s.kind, startedAt: num(s.startedAt) ? s.startedAt : 0, endedAt: num(s.endedAt) ? s.endedAt : 0,
-    options: { skipKnown: !!s.options?.skipKnown, stopAfter: num(s.options?.stopAfter) ? s.options.stopAfter : 0, skipped: num(s.options?.skipped) ? s.options.skipped : 0 },
+    options: { skipKnown: !!s.options?.skipKnown, stopAfter: num(s.options?.stopAfter) ? s.options.stopAfter : 0, skipped: num(s.options?.skipped) ? s.options.skipped : 0,
+      ...(s.options?.source === 'game' ? { source: 'game', mode: String(s.options.mode || '').slice(0, 12) } : {}) },
     responses: s.responses.filter((r) => CHECKS[s.kind].items.includes(r?.item) && MARKS[r.mark] && num(r.at))
       .map((r) => ({ item: r.item, mark: r.mark, ms: num(r.ms) ? r.ms : 0, at: r.at })),
   }));

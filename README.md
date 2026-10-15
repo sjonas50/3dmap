@@ -45,11 +45,12 @@ The game needs a current browser (Chrome, Edge, Firefox, or Safari 16.4+ on Mac 
 | R / Enter | 🔊 Read | read the place card aloud (or the speech bubble of whoever is right next to you) |
 | B | 🐝 Help | the bee flies to the quest place, or to the nearest golden letter |
 | M | 🗺️ Map | big map with the alphabet you have found |
-| click the minimap or the big map | tap the big map (tapping the little map opens the big one) | zoom to that spot. Click a place's marker to land beside it, facing it (at the front door if it has one), or a friend's marker to visit them |
+| click the big map (the little map opens it) | tap the big map (tapping the little map opens the big one) | zoom to that spot. Click a place's marker to land beside it, facing it (at the front door if it has one), or a friend's marker to visit them. During a quest, choosing a place you haven't found is your answer (see Reading questions) |
+| 1, 2, 3 | tap a choice | answer a reading question (R hears it again, Esc closes it) |
 | C | | switch to another kid |
 | H | | hide the help box |
 
-Hovering over a map shows where you will land, and the word for the place under the pointer. If you click the sea, you land on the nearest dry land.
+Hovering over a map shows where you will land, and the word for a place you have found (the others' words are what the reading questions ask). If you click the sea, you land on the nearest dry land.
 The top-right buttons are ☀️/🌙 (time of day), 🏠 (go home), 🔊 (sound on/off) and ⚙️. Settings has picture quality, a time-of-day picker, a button to stop the clock, the talking-friends switches, and "start over" (it asks before it erases anything).
 New places and letters are read aloud when you find them (unless the sound is off).
 
@@ -67,7 +68,12 @@ Reading aloud uses the voices built into the browser and the device, so how natu
   - ⚓ **Captain Finn**, on the harbor, knows about boats, the whale and the lighthouse.
   - 🌻 **Farmer Rosa**, by the red barn, plays animal games.
   - 🐉 **Pip**, a little dragon at the dragon cliffs, loves riddles and rhymes.
-- **Word quests** – find all 37 places. Each new place gives a star.
+- **Word quests** – find all 37 places, easiest words first ("Can you find the red BARN?"). Each new place gives a star. Once every place is found, the words a student hasn't yet read right first time come back as "...again?" quests.
+- **Reading questions** – the game asks children to read, and keeps what they show for their teacher:
+  - **On the map**: during a quest the map doesn't mark the answer. Find the word's picture and tap it. A wrong place says what it is (and shows its word), then spells the word to look for; after two wrong taps the map glows near the place, after three the red ring shows it.
+  - **Arriving at a place**: before its star, tap its word out of three (the other two usually start with the same letter). Children still learning their letters (level 1 or 2 from their teacher's checks) hear the word and find it instead. 🔊 reads the word if a reader needs help. A wrong choice says what that word is; after two, the answer is shown, so nobody gets stuck.
+  - **Golden letters**: which little letter goes with the big one? The other choices look alike (b, d, p).
+  - Right first time, without help and within 8 seconds, counts as "knew it"; otherwise "slow"; shown the answer, "not yet". A grown-up can switch the questions off in ⚙️ Settings, for free play like before.
 - **Alphabet hunt** – 26 golden letters are hidden around the island, each next to its word: A for APPLE by the apple trees, Q for QUACK by the duck pond, W by the waterfall, and X marks the treasure box. Each letter you find shows a card like "Q is for QUACK". A soft beam of light marks letters that are far away. The **M** letter only comes out at night (by day you see a faint ghost of it), **J** floats above the trampoline, and **Z** hangs over the zip line.
 - **Day and night** – a full day lasts about 5 minutes, and nights go by faster than days. At sunset the sky turns orange. At night windows and street lamps light up, the lighthouse beam shines, stars and the moon come out, and the bee glows like a lantern. The owl wakes up and fireflies come out; walk into them to catch them.
 - **Zip line** – from the tree house deck down through the redwoods.
@@ -102,7 +108,7 @@ Before real children use this outside your own home or classroom, check the rule
 Open **👩‍🏫 For teachers** on the start screen (or go to `http://localhost:8642/teacher.html`). A multiplication question keeps young children out; it is asked once per visit.
 
 - **Add your students**, one name per line. First names or nicknames are enough. In the game, each student then taps their name before playing and gets their own stars and golden letters on that device. **Just play** plays as a guest, with the stars and letters the device already had. ⚙️ Settings → Who's playing → Change goes back to the names.
-- **Give a reading check** one-to-one: open a student and press **Start a reading check**. The child reads the big card aloud and you tap how it went: **✓ Knew it** (right within about 3 seconds), **🐢 Slow** (got it with effort) or **✗ Not yet**. On a keyboard: → knew it, ↓ slow, ← not yet, Backspace undo, Esc end. There are six checks: capital letters, lowercase letters, letter sounds (with a hint of what to listen for), and Fry sight words 1–100, 101–200 and 201–300. Letters come in a new random order each time and Fry words in list order. Re-checks skip what the child already knows, and word lists stop after 5 "not yet" answers in a row.
+- **Give a reading check** one-to-one: open a student and press **Start a reading check**. The child reads the big card aloud and you tap how it went: **✓ Knew it** (right within about 3 seconds), **🐢 Slow** (got it with effort) or **✗ Not yet**. On a keyboard: → knew it, ↓ slow, ← not yet, Backspace undo, Esc end. There are seven checks: capital letters, lowercase letters, letter sounds (with a hint of what to listen for), Fry sight words 1–100, 101–200 and 201–300, and the 37 island words. Letters come in a new random order each time and Fry words in list order. Re-checks skip what the child already knows, and word lists stop after 5 "not yet" answers in a row.
 - **Levels** come from quick, correct answers only:
 
   | Level | Name | Reached with |
@@ -116,7 +122,7 @@ Open **👩‍🏫 For teachers** on the start screen (or go to `http://localhos
   | 7 | Sight words 3 | 200+ Fry words |
 
   Change the numbers in `LEVELS` in `src/classroom.js`.
-- **Reports**: the class page shows each student's level and counts, groups by level for small-group work, and the words the fewest students know. A student's page shows next steps (letters and sounds to learn, the next sight words to practise), every letter and word in colour, and their check history. It prints cleanly. You can download a summary or every answer as a spreadsheet.
+- **Reports**: the class page shows each student's level and counts, groups by level for small-group work, and the words the fewest students know. A student's page shows next steps (letters and sounds to learn, the next sight words to practise), every letter and word in colour, and their check history. **In the game** shows what the student showed while playing: each island word and little letter, right first time, with help or a second try, or not yet. Those are taps out of three choices (a lucky guess is possible), so they never change the level: a reading check confirms. It prints cleanly. You can download a summary or every answer as a spreadsheet.
 - **Where results are kept**: in this browser on this device, and, once you sign in, in your school's account too (see below). Without an account, use **Save a backup file** now and then (clearing the browser's data would erase the results), and **Restore from a backup file** to move a class to another device. Students' names only ever go to your school's account: the talking friends only hear the name of the game character.
 - **School account**: when this computer has a school account set up (below), the class page has a **School account** card. Sign in with Google, Microsoft or an emailed link, start your school or open it, then **Save** the class on this device to it or **Open** a class from it. After that every change is saved on the device first and sent when there's a connection, so checks keep working without Wi-Fi; the line at the top says whether everything is synced. Open the class on another device to see the same students and results, including checks given there. An aide sees the class and gives checks, but the class list belongs to its teacher. Signing out takes the class off the device (it stays in the account).
 
@@ -174,7 +180,7 @@ Not done yet: a page for admins to add staff (for now `add_school_member()`, or 
 - `src/friends.json` – the island friends: personality, where they stand, their look and voice, greetings, and built-in lines.
 - `src/friends.js` – builds the friends in the world and animates them (turn to face you, wave, talk).
 - `src/chat.js` – the chat panel: read-aloud with highlighting, reply buttons, voice typing, privacy check, and built-in replies.
-- `src/mapdata.js` – every landmark, road, river, forest and plot, given in pixel positions on the original map image. Edit this file to move things.
+- `src/mapdata.js` – every landmark, road, river, forest and plot, given in pixel positions on the original map image. Each place also has its word, sentence, how a quest asks for it, and a phonics level (1 short words to 5 long ones) for the quest order. Edit this file to move things.
 - `src/terrain.js` – heightmap, chunked terrain meshes, and the ground shader. The shader blends grass, dirt, gravel, asphalt, paving, sand, cliff rock, mud, snow and forest floor. A high-resolution "splat" map keeps roads and paths crisp.
 - `src/textures.js` – procedural textures: building and bark detail with normal maps, plus the ground textures (colour and height).
 - `src/nature.js` – trees built from needle and leaf cards that sway in the wind. Far away they switch to camera-facing billboards rendered into an atlas.
@@ -185,7 +191,8 @@ Not done yet: a page for admins to add staff (for now `add_school_member()`, or 
 - `src/character.js` – the kids (Leo, Ruby, Sam, Ava) and the grown-up friends. Each body is a skinned mesh on a skeleton, so elbows and knees bend smoothly. They have soft fabric and skin materials, eyes that blink, heads that look around, and a mouth that moves when they talk. They walk, run, jump, land, swim, wave, cheer, lean into turns, hang from the zip line, float with an umbrella and read. Grown-ups can wear glasses, hats and beards.
 - `src/daynight.js` – the day/night cycle. It moves the sun and moon, colours the sky, fog, water and clouds, and turns on the stars, window lights, lamps and fireflies.
 - `src/play.js` – the alphabet letters, the zip line ride, the balloon ride and the balls.
-- `src/buddy.js` – the bee buddy and the word quests (easy words first, nearest first).
+- `src/buddy.js` – the bee buddy and the word quests (easiest phonics level first, nearest first, then review of missed words).
+- `src/quiz.js` – the reading questions: tap one of three words or letters, with feedback, help and the answer after two misses.
 - `src/talk.js` – speech bubbles for the kids and animals.
 - `src/fx.js` – footstep dust, water ripples, splashes, sparkles and confetti.
 - `src/audio.js` – synthesised sound: wind, waves, river, birds by day, crickets and the owl at night, footsteps, boings, whooshes and chimes. There are no audio files. It goes quiet when the tab is in the background.

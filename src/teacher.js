@@ -3,7 +3,7 @@
 import {
   CHECKS, LETTER_KINDS, FRY_KINDS, LEVELS, MARKS, load, save, addStudents, renameStudent, removeStudent, renameClass, startSession,
   answer, undoAnswer, finishSession, summary, nextSteps, groupsByLevel, wordsToTeach, summaryCSV, answersCSV, backupJSON, readBackup,
-  link, unlink, pendingCount,
+  link, unlink, pendingCount, gameSummary,
 } from './classroom.js';
 import { Cloud } from './cloud.js';
 
@@ -13,7 +13,9 @@ const day = (t) => (t ? new Date(t).toLocaleDateString(undefined, { month: 'shor
 const byName = (a, b) => a.nickname.localeCompare(b.nickname, undefined, { sensitivity: 'base' });
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const levelBadge = (lv) => (lv ? `<span class="lv l${lv.n}">Level ${lv.n} · ${esc(lv.name)}</span>` : '<span class="dim">Not checked yet</span>');
-const tile = (x, r) => `<span class="t ${r ? r.mark : 'none'}" title="${esc(x)}: ${r ? `${MARKS[r.mark]}, ${day(r.at)}` : 'not checked'}">${esc(x)}</span>`;
+const tile = (x, r, text = x) => `<span class="t ${r ? r.mark : 'none'}" title="${esc(x)}: ${r ? `${MARKS[r.mark]}, ${day(r.at)}` : 'not checked'}">${esc(text)}</span>`;
+/** How a check shows its items (island words in capitals, as in the game). */
+const display = (kind, x) => (CHECKS[kind].show ? CHECKS[kind].show(x) : x);
 
 let data = load();
 let openSetupFor = null; // a student whose check menu should open when their page shows
@@ -208,7 +210,7 @@ function studentView(s) {
   const lastOf = (kind) => Math.max(0, ...[...m.kinds[kind].status.values()].map((r) => r.at));
   const grid = (kind) => {
     const k = m.kinds[kind], def = CHECKS[kind];
-    const tiles = `<div class="tiles">${def.items.map((x) => tile(x, k.status.get(x))).join('')}</div>`;
+    const tiles = `<div class="tiles">${def.items.map((x) => tile(x, k.status.get(x), display(kind, x))).join('')}</div>`;
     const title = `${esc(def.title)} <small class="dim">${status(kind)}</small>`;
     return k.asked ? `<h4>${title}</h4>${tiles}` : `<details><summary><b>${title}</b></summary>${tiles}</details>`;
   };
@@ -220,7 +222,14 @@ function studentView(s) {
     next.words.length ? `<li>Sight words to practise next: ${next.words.map((w) => tile(w, FRY_KINDS.map((k) => m.kinds[k].status.get(w)).find(Boolean))).join(' ')}</li>` : '',
     next.nextCheck ? `<li>Next check: <button data-start="${next.nextCheck}">${esc(CHECKS[next.nextCheck].title)}</button></li>` : '',
   ].join('');
-  const history = data.sessions.filter((x) => x.studentId === s.id && x.responses.length).sort((a, b) => b.startedAt - a.startedAt);
+  // teacher checks; what the game saw has its own card
+  const history = data.sessions.filter((x) => x.studentId === s.id && x.responses.length && !x.options.source).sort((a, b) => b.startedAt - a.startedAt);
+  const g = gameSummary(data, s.id);
+  const gameGrid = (kind, title, how) => {
+    const k = g.kinds[kind];
+    return `<h4>${esc(title)} <small class="dim">${how} · ${k.asked ? `${k.knew} right first time · ${k.slow} with help or a second try · ${k.notYet} not yet` : 'none yet'}</small></h4>
+      <div class="tiles">${CHECKS[kind].items.map((x) => tile(x, k.status.get(x), display(kind, x))).join('')}</div>`;
+  };
   const tally = (x, mark) => x.responses.filter((r) => r.mark === mark).length;
   const givenBy = (x) => (x.givenBy && x.givenBy !== cloud.user?.id && data.cloud?.people?.[x.givenBy] ? `by ${esc(data.cloud.people[x.givenBy])}` : '');
 
@@ -248,7 +257,11 @@ function studentView(s) {
     <section class="card"><h3>Next steps</h3>${!m.level ? `<p>Start with <button data-start="capitals">Capital letters</button>, then <b>Letter sounds</b> and <b>Fry words 1–100</b>.</p>`
       : steps ? `<ul class="steps">${steps}</ul>` : '<p>Nothing missed so far. 🎉</p>'}</section>
     <section class="card"><h3>Letters</h3>${LETTER_KINDS.map(grid).join('')}</section>
-    <section class="card"><h3>Fry sight words</h3>${FRY_KINDS.map(grid).join('')}</section>
+    <section class="card"><h3>Fry sight words</h3>${FRY_KINDS.map(grid).join('')}${grid('places')}</section>
+    <section class="card"><h3>In the game</h3>${g.any ? `<p class="dim">${esc(s.nickname)} taps one of three choices, so a lucky guess is possible: a reading check confirms.
+        These answers don’t change the level. Last played ${day(g.last)}.</p>
+      ${gameGrid('places', 'Island words', 'reading a place’s word, or finding it on the map')}${gameGrid('lowercase', 'Little letters', 'matching each golden letter')}`
+      : `<p class="dim">Nothing from the game yet. When ${esc(s.nickname)} taps their name in the game, the island words they read and the little letters they match show up here.</p>`}</section>
     <section class="card"><h3>Check history</h3>${history.length ? `<div class="scroll"><table>
       <thead><tr><th>Date</th><th>Check</th><th class="num">Asked</th><th class="num">Knew it</th><th class="num">Slow</th><th class="num">Not yet</th><th></th></tr></thead>
       <tbody>${history.map((x) => `<tr><td>${day(x.startedAt)}</td><td>${esc(CHECKS[x.kind].title)}</td><td class="num">${x.responses.length}</td>
@@ -478,8 +491,8 @@ function showCard() {
   $('rDone').hidden = true;
   $('rCard').hidden = $('rMarks').hidden = false;
   const x = run.items[run.i];
-  $('rItem').textContent = x;
-  $('rItem').className = !run.kind.startsWith('fry') ? 'letter' : x.length > 6 ? 'long' : '';
+  $('rItem').textContent = display(run.kind, x);
+  $('rItem').className = LETTER_KINDS.includes(run.kind) ? 'letter' : x.length > 6 ? 'long' : '';
   $('rHint').textContent = run.def.hint ? run.def.hint(x) : '';
   $('rCount').textContent = `${run.i + 1} of ${run.items.length}`;
   $('rUndo').disabled = run.i === 0;
@@ -520,7 +533,7 @@ function finish(note) {
   $('rSummary').innerHTML = `<h2>${esc(run.s.nickname)} · ${esc(run.def.title)}</h2>
     <p class="big"><b>${c.knew}</b> knew it · <b>${c.slow}</b> slow · <b>${c.not_yet}</b> not yet <span class="dim">(${r.length} asked)</span></p>
     ${note ? `<p class="dim">${esc(note)}</p>` : ''}
-    ${missed.length ? `<p>To practise: </p><div class="tiles" style="justify-content:center">${missed.map((x) => tile(x.item, x)).join('')}</div>`
+    ${missed.length ? `<p>To practise: </p><div class="tiles" style="justify-content:center">${missed.map((x) => tile(x.item, x, display(run.kind, x.item))).join('')}</div>`
       : `<p>${r.length < run.items.length ? 'All right so far.' : 'Every one right! 🎉'}</p>`}`;
 }
 

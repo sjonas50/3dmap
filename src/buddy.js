@@ -132,32 +132,56 @@ export class BeeBuddy {
   }
 }
 
-/** Word quests: "Can you find the BARN?" — easy words first, nearest first. */
+/**
+ * Word quests: "Can you find the red BARN?". The easiest words come first (each place's phonics level in
+ * mapdata.js), nearest first. Once every place is found, the words a student hasn't read right first time yet
+ * (review(), from their answers) come back as "...again?" quests.
+ */
 export class Quests {
-  constructor(ui, marks) {
+  constructor(ui, marks, review = () => []) {
     this.ui = ui;
     this.marks = marks;
+    this.review = review;
     this.current = null;
     this.wait = 0;
+    this.tries = 0;          // wrong places tapped on the map for this quest
+    this.heard = false;      // the quest was read aloud
+    this.reviewDone = false; // a review word has been read again
+    this.shownAt = 0;
   }
   next(playerPos) {
+    Object.assign(this, { tries: 0, heard: false, reviewDone: false, shownAt: performance.now() });
+    this.ui.questHint = 0;
+    this.ui.reviewId = null;
+    const near = (a, b) => Math.hypot(a.x - playerPos.x, a.z - playerPos.z) - Math.hypot(b.x - playerPos.x, b.z - playerPos.z);
+    const easiest = (list) => {
+      const level = Math.min(...list.map((m) => m.tier ?? 3));
+      return list.filter((m) => (m.tier ?? 3) === level).sort(near)[0];
+    };
     const left = this.marks.filter((m) => !this.ui.found.has(m.id));
+    let again = [];
     if (!left.length) {
-      // every place found: show "ALL DONE" once (not every frame)
-      if (!this.done) { this.done = true; this.ui.setQuest(null, true); }
-      this.current = null;
+      const words = this.review();
+      again = this.marks.filter((m) => words.includes(m.word.toLowerCase()) && m.id !== this.lastReview);
+    }
+    if (left.length || again.length) {
+      this.done = false;
+      this.current = left.length ? easiest(left) : { ...easiest(again), review: true };
+      if (this.current.review) this.ui.reviewId = this.current.id;
+      this.ui.setQuest(this.current, false);
       return;
     }
-    this.done = false;
-    const len = (m) => m.word.replace(/ /g, '').length;
-    const min = Math.min(...left.map(len));
-    const tier = left.filter((m) => len(m) <= min + 1);
-    tier.sort((a, b) => Math.hypot(a.x - playerPos.x, a.z - playerPos.z) - Math.hypot(b.x - playerPos.x, b.z - playerPos.z));
-    this.current = tier[0];
-    this.ui.setQuest(this.current, false);
+    // every place found and every word read: show "ALL DONE" once, then look again now and then (the word
+    // just practised may come back after that)
+    if (!this.done) { this.done = true; this.ui.setQuest(null, true); }
+    this.current = null;
+    this.lastReview = null;
+    this.wait = 5;
   }
   /** Forget the current quest (after "start over"). */
-  reset() { this.current = null; this.wait = 0; this.done = false; }
+  reset() { this.current = null; this.wait = 0; this.done = false; this.lastReview = null; }
+  /** How a quest answered on the map went: right first time, without hearing it read (unless listening is the point), is "knew it". */
+  mapMark(listen) { return this.tries === 0 && (listen || !this.heard) ? 'knew' : this.tries <= 1 ? 'slow' : 'not_yet'; }
   /** Returns true when the current quest was just completed. */
   update(dt, playerPos) {
     if (this.wait > 0) {
@@ -165,9 +189,13 @@ export class Quests {
       if (this.wait <= 0) this.next(playerPos);
       return false;
     }
-    if (this.current && this.ui.found.has(this.current.id)) {
-      this.ui.setQuest(this.current, false, true);
+    const c = this.current;
+    if (c && (c.review ? this.reviewDone : this.ui.found.has(c.id))) {
+      this.lastReview = c.review ? c.id : null;
+      this.ui.setQuest(c, false, true);
       this.current = null;
+      this.ui.reviewId = null;
+      this.ui.questHint = 0;
       this.wait = 4;
       return true;
     }

@@ -18,6 +18,13 @@ export class UI {
     this.friends = [];
     this.readToken = 0;
     this.bubbleNear = false;
+    this.ask = true;        // reading questions: a new place's star waits until the child reads its word
+    this.pending = null;    // the place to ask about now (see update)
+    this.declined = null;   // a place whose question was closed: asked again on the next visit
+    this.reviewId = null;   // a found place a review quest wants read again
+    this.questHint = 0;     // map hints given for this quest: 2 shows a glow, 3 the ring
+    this.mapFlash = null;   // a place tapped by mistake on the map, labelled for a moment
+    this.onHear = null;     // the quest was read aloud to the child
     this.marks = LANDMARKS.map((l) => {
       const [x, z] = P(...l.p);
       return { ...l, x, z };
@@ -44,7 +51,7 @@ export class UI {
       });
     }
     this.$('cardSpeak').addEventListener('click', () => this.speak(true));
-    this.$('questSay').addEventListener('click', () => this.quest && this.say(`Find the ${this.quest.word.toLowerCase()}.`, 'questWord'));
+    this.$('questSay').addEventListener('click', () => this.sayQuest());
     const alpha = this.$('alpha');
     this.tiles = ABC.map((ch) => {
       const s = document.createElement('span');
@@ -119,23 +126,34 @@ export class UI {
 
   chime() { this.sound?.chime(); }
 
-  /** Quest panel: the word to find, a "found it!" state, or all done. */
+  /** Read the quest aloud ("Can you find the red barn?"). */
+  sayQuest() {
+    if (!this.quest) return;
+    this.say(`Can you find ${questPhrase(this.quest).toLowerCase()}${this.quest.review ? ' again' : ''}?`, 'questWord');
+    this.onHear?.();
+  }
+
+  /** Quest panel: the word to find (in its sentence: "Can you find the BLUE house?"), a "found it!" state, or all done. */
   setQuest(mark, allDone, completed = false) {
     const box = this.$('quest');
     box.classList.remove('hidden', 'done', 'pop');
     void box.offsetWidth;
     this.quest = completed || allDone ? null : mark;
+    this.$('questTail').textContent = '';
     if (allDone) {
       box.classList.add('done');
       this.$('questLead').textContent = 'You did it!';
       this.$('questWord').textContent = '🏆 ALL DONE';
     } else if (completed) {
       box.classList.add('done');
-      this.$('questLead').textContent = 'You found the';
+      this.$('questLead').textContent = 'You found';
       this.$('questWord').textContent = mark.word + ' ⭐';
     } else {
-      this.$('questLead').textContent = 'Can you find the';
+      const phrase = questPhrase(mark), at = phrase.indexOf(mark.word);
+      const before = phrase.slice(0, at).trim(), after = [phrase.slice(at + mark.word.length).trim(), mark.review ? 'again' : ''].filter(Boolean).join(' ');
+      this.$('questLead').textContent = `Can you find ${before}`.trim();
       this.$('questWord').textContent = mark.word;
+      this.$('questTail').textContent = after ? `${after}?` : '';
     }
     box.classList.add('pop');
   }
@@ -191,7 +209,31 @@ export class UI {
     if (b.textContent !== icon) b.textContent = icon;
   }
 
-  /** Returns the landmark found for the first time this frame (or null). */
+  /** A place is found: star it, save it, cheer. Returns it (or null if it was already found). */
+  markFound(m) {
+    if (this.found.has(m.id)) return null;
+    this.found.add(m.id);
+    try { localStorage.setItem(this.store, JSON.stringify([...this.found])); } catch { /* ignore */ }
+    this.$('foundN').textContent = this.found.size;
+    this.chime();
+    this.toast(this.found.size === this.marks.length ? '🎉 You found every place! 🎉' : `⭐ You found <b>${m.name}</b>!`);
+    if (m === this.current && !this.flash) this.showPlaceCard();
+    return m;
+  }
+  /** The question was closed: ask again when the child comes back. */
+  decline(m) { this.declined = m.id; }
+
+  /** The card for the place you're in, once it's found (before that it would give the answer away). */
+  showPlaceCard() {
+    const c = this.current;
+    if (c && this.found.has(c.id)) this.showCard(c.name, c.word, c.say);
+    else this.$('card').classList.add('hidden');
+  }
+
+  /**
+   * Returns the landmark found this frame (only without reading questions: with them the game asks about
+   * this.pending first, then calls markFound).
+   */
   update(dt, pos, heading, others) {
     let newlyFound = null;
     let best = null, bd = Infinity;
@@ -202,25 +244,18 @@ export class UI {
     let changed = false;
     if (best !== this.current) {
       this.current = best;
+      this.declined = null;
       changed = true;
-      if (best && !this.found.has(best.id)) {
-        this.found.add(best.id);
-        try { localStorage.setItem(this.store, JSON.stringify([...this.found])); } catch { /* ignore */ }
-        this.$('foundN').textContent = this.found.size;
-        this.chime();
-        const all = this.found.size === this.marks.length;
-        this.toast(all ? `🎉 You found every place! 🎉` : `⭐ You found <b>${best.name}</b>!`);
-        newlyFound = best;
-      }
+      if (best && !this.ask) newlyFound = this.markFound(best);
     }
+    // the place to ask about: a new one, or the one a review quest wants read again
+    const c = this.current;
+    this.pending = this.ask && c && this.declined !== c.id && (!this.found.has(c.id) || c.id === this.reviewId) ? c : null;
     if (this.flash) {
       this.flash.t -= dt;
       if (this.flash.t <= 0) { this.flash = null; changed = true; }
     }
-    if (changed && !this.flash) {
-      if (this.current) this.showCard(this.current.name, this.current.word, this.current.say);
-      else this.$('card').classList.add('hidden');
-    }
+    if (changed && !this.flash) this.showPlaceCard();
     this.drawMap(this.mini, this.mini.canvas.width, this.mini.canvas.height, pos, heading, others, false);
     if (!this.big.parentElement.classList.contains('hidden')) {
       const g = this.big.getContext('2d');
@@ -237,20 +272,20 @@ export class UI {
     if (!(u >= 0 && u <= 1 && v >= 0 && v <= 1)) return null;
     const px = SRC.x + u * SRC.w, py = SRC.y + v * SRC.h;
     const snap = (8 / 260) * SRC.w; // a bit more than a marker's size
-    // a friend's marker wins over a place marker
+    // the nearest marker wins: a friend's, or a place's (friends often stand right by their place)
     let friend = null, fd = snap;
     for (const f of this.friends) {
       const [fx, fy] = toPx(f.pos.x, f.pos.z);
       const d = Math.hypot(fx - px, fy - py);
       if (d < fd) { fd = d; friend = f; }
     }
-    if (friend) return { canvas, x: friend.pos.x, z: friend.pos.z, mark: null, friend };
     let mark = null, best = snap;
     for (const l of this.marks) {
       const [lx, ly] = toPx(l.x, l.z);
       const d = Math.hypot(lx - px, ly - py);
       if (d < best) { best = d; mark = l; }
     }
+    if (friend && fd < best) return { canvas, x: friend.pos.x, z: friend.pos.z, mark: null, friend };
     const [x, z] = mark ? [mark.x, mark.z] : P(px, py);
     return { canvas, x, z, mark };
   }
@@ -283,7 +318,9 @@ export class UI {
         g.beginPath(); g.arc(mx, my, 2.6 * s, 0, 7); g.fill(); g.stroke();
       }
     }
-    if (this.quest) {
+    // with reading questions the quest's place is part of the puzzle: a glow near it after two wrong taps,
+    // the ring after three (without them the ring shows straight away)
+    if (this.quest && (!this.ask || this.questHint >= 3)) {
       const [qx, qy] = to(this.quest.x, this.quest.z);
       const pulse = (performance.now() / 600) % 1;
       g.strokeStyle = `rgba(255,59,48,${1 - pulse})`;
@@ -291,7 +328,19 @@ export class UI {
       g.beginPath(); g.arc(qx, qy, (5 + pulse * 10) * s, 0, 7); g.stroke();
       g.fillStyle = '#ff3b30';
       g.beginPath(); g.arc(qx, qy, 3 * s, 0, 7); g.fill();
+    } else if (this.quest && this.questHint === 2) {
+      // "somewhere around here": centred a little off the place, the same way each time
+      const [qx, qy] = to(this.quest.x, this.quest.z), a = this.quest.x * 7.3 + this.quest.z * 3.1;
+      const cx = qx + Math.cos(a) * 9 * s, cy = qy + Math.sin(a) * 9 * s, r = 28 * s * (1 + 0.06 * Math.sin(performance.now() / 300));
+      const glow = g.createRadialGradient(cx, cy, 0, cx, cy, r);
+      glow.addColorStop(0, 'rgba(255,214,60,0.55)');
+      glow.addColorStop(1, 'rgba(255,214,60,0)');
+      g.fillStyle = glow;
+      g.beginPath(); g.arc(cx, cy, r, 0, 7); g.fill();
     }
+    // a place tapped by mistake: its name for a moment, so the child learns that word too
+    const f = this.mapFlash;
+    if (f && performance.now() < f.until) label(g, W, ...to(f.mark.x, f.mark.z), s, f.mark.word, '#ffd9d4');
     for (const o of others) {
       const [ox, oy] = to(o.x, o.z);
       g.fillStyle = o.color;
@@ -319,9 +368,29 @@ export class UI {
     g.moveTo(0, -8 * s); g.lineTo(5.5 * s, 6 * s); g.lineTo(0, 3 * s); g.lineTo(-5.5 * s, 6 * s); g.closePath();
     g.fill(); g.stroke();
     g.restore();
+    // hovering names friends and the places already found (the others' words are what the questions ask)
     const h = this.hover;
-    if (h && h.canvas === g.canvas) drawTarget(g, W, ...to(h.x, h.z), s, h.friend ? h.friend.def.name : h.mark?.word);
+    const named = h?.mark && (!this.ask || this.found.has(h.mark.id)) ? h.mark.word : null;
+    if (h && h.canvas === g.canvas) drawTarget(g, W, ...to(h.x, h.z), s, h.friend ? h.friend.def.name : named);
   }
+}
+
+/** How a quest asks for a place: "the red BARN" (the word itself in capitals). */
+export const questPhrase = (m) => m.find || `the ${m.word}`;
+
+/** A word in a pill above a map marker (kept inside the map). */
+function label(g, W, x, y, s, word, fill) {
+  g.save();
+  g.font = `700 ${12 * s}px Andika, sans-serif`;
+  const w = g.measureText(word).width + 12 * s, h = 19 * s;
+  const bx = Math.min(Math.max(x - w / 2, 2), W - w - 2), by = Math.max(y - h - 8 * s, 2);
+  g.fillStyle = fill; g.strokeStyle = '#2b2b2b'; g.lineWidth = 1.5 * s;
+  g.beginPath();
+  if (g.roundRect) g.roundRect(bx, by, w, h, h / 2); else g.rect(bx, by, w, h);
+  g.fill(); g.stroke();
+  g.fillStyle = '#2b2b2b'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(word, bx + w / 2, by + h / 2 + s);
+  g.restore();
 }
 
 /** Where a click would take you: a ring, plus the place's word when the pointer is on a marker. */
