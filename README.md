@@ -117,13 +117,14 @@ Open **👩‍🏫 For teachers** on the start screen (or go to `http://localhos
 
   Change the numbers in `LEVELS` in `src/classroom.js`.
 - **Reports**: the class page shows each student's level and counts, groups by level for small-group work, and the words the fewest students know. A student's page shows next steps (letters and sounds to learn, the next sight words to practise), every letter and word in colour, and their check history. It prints cleanly. You can download a summary or every answer as a spreadsheet.
-- **Where results are kept**: in this browser on this device only, for now. Use **Save a backup file** now and then (clearing the browser's data would erase the results), and **Restore from a backup file** to move a class to another device. Students' names never leave the device: the talking friends only hear the name of the game character. Syncing classes across devices with teacher sign-in (Postgres on Supabase) is the planned next step.
+- **Where results are kept**: in this browser on this device, and, once you sign in, in your school's account too (see below). Without an account, use **Save a backup file** now and then (clearing the browser's data would erase the results), and **Restore from a backup file** to move a class to another device. Students' names only ever go to your school's account: the talking friends only hear the name of the game character.
+- **School account**: when this computer has a school account set up (below), the class page has a **School account** card. Sign in with Google, Microsoft or an emailed link, start your school or open it, then **Save** the class on this device to it or **Open** a class from it. After that every change is saved on the device first and sent when there's a connection, so checks keep working without Wi-Fi; the line at the top says whether everything is synced. Open the class on another device to see the same students and results, including checks given there. An aide sees the class and gives checks, but the class list belongs to its teacher. Signing out takes the class off the device (it stays in the account).
 
 The Fry list is in `src/wordlists.js`, from sightwords.com's "Fry Sight Words Listed by Frequency". Printed editions differ slightly ("animal" or "animals"), so change a word there to match your school's list.
 
 ## Backend: school accounts and shared results (Supabase)
 
-The database is built and tested on this computer; the teacher pages don't use it yet (signing in and syncing are the next step). It is plain Postgres on [Supabase](https://supabase.com), defined in `supabase/migrations/`:
+Teachers sign in on the teacher pages and their classes sync with the school's account. It is plain Postgres on [Supabase](https://supabase.com), defined in `supabase/migrations/`:
 
 - **Reading content**, the same for every school and readable by anyone: letters, the 44 sounds (plus x and qu), 66 spellings and the sounds each can make, chunks (word families like -at, blends like bl-, prefixes and suffixes), words with their syllables and sound-by-sound parts (the tables are ready; filling them in is a later step), the Fry lists 1–300, skills in teaching order, and the six checks. `decodable_words()` finds the words a child can sound out from the spellings they know.
 - **School data**, private to each school: schools, staff, classes, which staff work in which class, students (a nickname only), and every check and answer. Answers can only be items of the check (a letter or a list word), so no free text is ever stored.
@@ -136,28 +137,40 @@ The database is built and tested on this computer; the teacher pages don't use i
   | Aide | see their classes and give checks; can't change the class list or delete results |
   | Not signed in | read the reading content only |
 
-  Teachers will sign in with their school Google or Microsoft account. Students don't sign in.
+  Teachers sign in with their school Google or Microsoft account (or an emailed link). Students don't sign in.
+
+The teacher pages find the project through two lines in `.env` (see `.env.example`), which `serve.py` hands to the browser at `/api/config`:
+
+```
+SUPABASE_URL=https://<your-project>.supabase.co
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+```
+
+The publishable key is meant to be public: the database's rules protect the data. Never put the secret key there; `serve.py` refuses to hand one out. Without these lines the teacher pages work as before, with everything on the device. `src/cloud.js` does the signing in and syncing: changes are saved on the device first and sent in order (the class name, removed students, students, then checks); then the account's copy of the class comes back, so checks given on other devices show up. Changes made on the device and not yet sent always win.
 
 Run it locally (needs Docker):
 
 ```bash
 supabase start      # the first time downloads the containers
+supabase status     # the API URL and publishable key for .env
 supabase db reset   # rebuild the database from the migrations
-supabase test db    # the role tests (supabase/tests)
+supabase test db    # who can see and change what (supabase/tests)
 supabase stop
 ```
 
-Studio, a web view of the tables, is at http://127.0.0.1:54323 while it runs. The content migration was written by `node supabase/content/build-content.mjs` from `src/wordlists.js`; to change content later, add a new migration.
+Studio, a web view of the tables, is at http://127.0.0.1:54323 while it runs. With the local project in `.env`, the School account card also offers a test sign-in with an email and password, only on this computer. The content migration was written by `node supabase/content/build-content.mjs` from `src/wordlists.js`; to change content later, add a new migration.
 
 Going live, when you're ready:
 
 1. Create a project at supabase.com (a US region), then `supabase link --project-ref <your project ref>` and `supabase db push`.
-2. In Authentication → Providers, turn on Google and/or Azure (Microsoft) and add `teacher.html`'s address as a redirect URL.
+2. In Authentication → Providers, turn on Google and/or Azure (Microsoft), and in URL Configuration set the site URL and add `teacher.html`'s address as a redirect URL. Put the project URL and publishable key in `.env`.
 3. Before real students' results go in: sign Supabase's data processing agreement, publish a privacy notice with how long results are kept, and get each school's agreement (FERPA, COPPA's rules for schools, and state student-privacy laws). Many districts ask vendors to sign their data privacy agreement.
+
+Not done yet: a page for admins to add staff (for now `add_school_member()`, or the Supabase dashboard), signing in student devices so the game's progress syncs too, and filling in each word's syllables and sounds.
 
 ## Code layout
 
-- `serve.py` – the local web server, and the chat endpoint that talks to Claude (`/api/chat`, `/api/status`).
+- `serve.py` – the local web server, the chat endpoint that talks to Claude (`/api/chat`, `/api/status`), and the school account settings for the teacher pages (`/api/config`).
 - `src/friends.json` – the island friends: personality, where they stand, their look and voice, greetings, and built-in lines.
 - `src/friends.js` – builds the friends in the world and animates them (turn to face you, wave, talk).
 - `src/chat.js` – the chat panel: read-aloud with highlighting, reply buttons, voice typing, privacy check, and built-in replies.
@@ -179,7 +192,8 @@ Going live, when you're ready:
 - `src/touch.js` – the on-screen joystick and buttons (they appear on tablets, or on a touch-screen laptop once you touch the screen).
 - `src/ui.js` – the HUD: place cards, letter cards, the quest panel, read-aloud, stars and letters (saved in the browser), the firefly count, and the minimap.
 - `teacher.html`, `src/teacher.js` – the teacher pages: class list, the one-to-one reading check, class and student reports, spreadsheets and backups.
-- `src/classroom.js` – the class data shared by the game and the teacher pages: students, checks and answers, levels, next steps, exports. Its records have the shape of the planned database tables.
+- `src/classroom.js` – the class data shared by the game and the teacher pages: students, checks and answers, levels, next steps, exports, and the bookkeeping for syncing (what hasn't been sent yet, and merging the account's copy).
+- `src/cloud.js` – signing in to the school account and syncing the class with it (Supabase).
 - `src/wordlists.js` – Fry words 1–300, the letters, and what each letter sound should sound like.
 - `supabase/` – the backend: `migrations/` (tables, roles, functions, content), `tests/` (who can see and change what), `content/build-content.mjs` (writes the content migration), and `config.toml` for the local stack.
 

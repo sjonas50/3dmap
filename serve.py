@@ -16,7 +16,15 @@ script (it is picked up straight away, no restart needed):
 (Setting ANTHROPIC_API_KEY in the environment works too, and wins over the file.)
 The API key stays on this server; the browser never sees it, and .env is never served to browsers.
 Chat messages are not logged or saved.
+
+* /api/config tells the teacher pages which Supabase project holds the school accounts, from .env:
+
+    SUPABASE_URL=https://<project>.supabase.co        # or http://127.0.0.1:54321 for `supabase start`
+    SUPABASE_PUBLISHABLE_KEY=sb_publishable_...       # the public key; never the secret one
+
+  Without them the teacher pages keep everything on the device.
 """
+import base64
 import http.server
 import json
 import os
@@ -71,6 +79,29 @@ def model():
 
 def api_url():
     return setting("ANTHROPIC_BASE_URL", "https://api.anthropic.com").rstrip("/") + "/v1/messages"
+
+
+def supabase_config():
+    """The school account project for teacher sign-in, or None. Both values are public (the database's rules
+    protect the data), but a secret or service-role key must never reach a browser, so those are refused."""
+    url = setting("SUPABASE_URL").rstrip("/")
+    key = setting("SUPABASE_PUBLISHABLE_KEY") or setting("SUPABASE_ANON_KEY")
+    if not url or not key:
+        return None
+    if not re.fullmatch(r"https?://[\w.-]+(:\d+)?", url):
+        print(f"[config] SUPABASE_URL doesn't look like a project address: {url[:60]}", file=sys.stderr)
+        return None
+    role = ""
+    if key.count(".") == 2:  # a JWT: check which role it carries
+        try:
+            payload = key.split(".")[1]
+            role = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))).get("role", "")
+        except (ValueError, UnicodeDecodeError):
+            role = "?"
+    if key.startswith("sb_secret_") or role not in ("", "anon"):
+        print("[config] SUPABASE_PUBLISHABLE_KEY must be the publishable (anon) key, never the secret one", file=sys.stderr)
+        return None
+    return {"url": url, "key": key}
 
 MAX_TURNS = 16          # how much of the conversation is sent back to the model
 MAX_TEXT = 300          # longest message a child can send
@@ -298,6 +329,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path == "/api/status":
             on = bool(api_key())
             return self.send_json(200, {"ai": on, "model": model() if on else None})
+        if self.path == "/api/config":
+            return self.send_json(200, {"supabase": supabase_config()})
         super().do_GET()
 
     def send_head(self):
@@ -335,6 +368,8 @@ if __name__ == "__main__":
         print(f"Talking friends: Claude ({model()})", flush=True)
     else:
         print(f"Talking friends: built-in replies. To use Claude, put ANTHROPIC_API_KEY=... in {ENV_FILE}", flush=True)
+    sb = supabase_config()
+    print(f"Teacher accounts: {sb['url']}" if sb else "Teacher accounts: off (results stay on each device)", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
