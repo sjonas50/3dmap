@@ -148,6 +148,27 @@
   .dots i:nth-child(2) { animation-delay: 0.15s; } .dots i:nth-child(3) { animation-delay: 0.3s; }
   @keyframes dot { 0%, 80%, 100% { transform: translateY(0); opacity: 0.4; } 40% { transform: translateY(-8px); opacity: 1; } }
   body.chatting #prompt, body.chatting #help, body.chatting #joyZone, body.chatting #touchBtns, body.chatting #card { display: none; }
+
+  /* reading questions: tap the right word (or letter) out of three */
+  #ask { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); width: min(740px, calc(100vw - 20px)); z-index: 12; background: var(--paper); border: 4px solid var(--ink); border-radius: 26px; box-shadow: 0 8px 0 var(--ink), 0 18px 40px rgba(0,0,0,0.3); padding: 12px 16px 16px; display: grid; gap: 12px; }
+  .askTop { display: flex; align-items: center; gap: 10px; }
+  #askIcon { font-size: 30px; }
+  #askPrompt { flex: 1; font: 700 clamp(20px, 3.2vw, 28px)/1.25 Fredoka, Andika, sans-serif; }
+  #askChoices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .askChoice { font: 700 clamp(20px, 3.8vw, 34px)/1.1 Andika, sans-serif; letter-spacing: 1px; color: var(--ink); min-height: 78px; padding: 8px; border-radius: 20px; border: 3px solid var(--ink); background: #fff8e0; box-shadow: 0 4px 0 var(--ink); cursor: pointer; }
+  .askChoice.letter { font-size: clamp(40px, 7vw, 64px); }
+  .askChoice.yes { background: #cdeec4; }
+  .askChoice.no { opacity: 0.35; }
+  .askChoice.show { background: #fff2c4; box-shadow: 0 0 0 5px var(--honey); }
+  /* room for the feedback line from the start, so the choices don't move under a child's finger */
+  #askSay { font: 700 22px/1.3 Andika, sans-serif; text-align: center; min-height: 1.3em; }
+  body.asking #prompt, body.asking #help, body.asking #joyZone, body.asking #touchBtns, body.asking #card { display: none; }
+  #questTail { font-size: 16px; font-weight: 700; color: var(--honey-dark); }
+  #questTail:empty { display: none; }
+  #questWord b { font-weight: 700; }
+  #mapQuest { display: flex; align-items: center; gap: 10px; background: var(--paper); color: var(--ink); border: 3px solid var(--ink); border-radius: 20px; padding: 6px 8px 6px 16px; font: 700 21px Fredoka, Andika, sans-serif; }
+  #mapQuest b { font: 700 30px Andika, sans-serif; letter-spacing: 1px; }
+  #bigmap.quest #bigmapc { width: min(92vw, calc(70vh * 1.009)); }
   @media (max-width: 900px) { body.chatting #minimap { display: none; } }
   @media (max-height: 520px) { #chat { padding: 8px 12px; gap: 6px; } .chip { min-height: 44px; font-size: 18px; } .round { width: 46px; height: 46px; } #chatFace { width: 46px; height: 46px; } }
 
@@ -216,6 +237,7 @@
     <div id="quest" class="hidden">
       <div id="questLead">Can you find the</div>
       <div id="questWord"></div>
+      <div id="questTail"></div>
       <div class="qbtns"><button id="questSay">🔊 Hear it</button><button id="questHelp">🐝 Help <span class="key">(B)</span></button></div>
     </div>
   </div>
@@ -231,6 +253,9 @@
     <h3>Talking friends</h3>
     <div class="row"><button id="aiToggle">🤖 Smart talk: on</button><button id="voiceToggle">🎤 Voice typing: on</button></div>
     <p class="note" id="aiStatus"></p>
+    <h3>Reading questions</h3>
+    <div class="row"><button id="askToggle">📖 Questions: on</button></div>
+    <p class="note">Before a place's star, children tap its word; with each golden letter, its little letter. Students' answers go to their teacher's report.</p>
     <div id="whoRow" class="hidden"><h3>Who's playing</h3><div class="row"><span id="whoName"></span><button id="changePlayer">Change</button></div></div>
     <h3>Stars and letters</h3>
     <div class="row" id="resetRow"><button id="resetStars">Start over</button><button id="closeSettings">Close</button></div>
@@ -242,7 +267,7 @@
     <div id="cardSentence"></div>
     <button id="cardSpeak">🔊 Read it to me <span class="key">(R)</span></button>
   </div>
-  <canvas id="minimap" width="520" height="516" title="Click a spot to go there"></canvas>
+  <canvas id="minimap" width="520" height="516" title="Open the big map"></canvas>
   <div id="help">
     <kbd>⬆</kbd><kbd>⬇</kbd><kbd>⬅</kbd><kbd>➡</kbd> walk · <kbd>Space</kbd> jump · <kbd>Shift</kbd> run<br />
     🖱️ Click the ground to walk there · drag to look<br />
@@ -253,7 +278,17 @@
   <div id="prompt" class="hidden"></div>
 </div>
 
-<div id="bigmap" class="hidden"><canvas id="bigmapc" width="1236" height="1225"></canvas><div id="alpha"></div><div id="bigmapHint">Click a place to go there! · Press M to close</div><button id="bigClose" title="Close the map">✕</button></div>
+<div id="bigmap" class="hidden"><div id="mapQuest" class="hidden"><span id="mapQuestText"></span><button id="mapQuestHear" class="round" title="Hear it">🔊</button></div><canvas id="bigmapc" width="1236" height="1225"></canvas><div id="alpha"></div><div id="bigmapHint">Click a place to go there! · Press M to close</div><button id="bigClose" title="Close the map">✕</button></div>
+
+<div id="ask" class="hidden" role="dialog" aria-label="Reading question">
+  <div class="askTop">
+    <span id="askIcon"></span><span id="askPrompt"></span>
+    <button id="askHear" class="round" title="Hear it">🔊</button>
+    <button id="askClose" class="round" title="Not now">✕</button>
+  </div>
+  <div id="askChoices"></div>
+  <div id="askSay" aria-live="polite"></div>
+</div>
 
 <div id="chat" class="hidden" role="dialog" aria-label="Talk with a friend">
   <div class="chatTop">

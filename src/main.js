@@ -9,7 +9,8 @@ import { Grass } from './grass.js';
 import { buildStructures } from './buildings.js';
 import { spawnCreatures } from './creatures.js';
 import { Kid, KIDS, nameTag } from './character.js';
-import { UI } from './ui.js';
+import { UI, questPhrase } from './ui.js';
+import { Quiz, shuffled } from './quiz.js';
 import { FX } from './fx.js';
 import { BeeBuddy, Quests } from './buddy.js';
 import { Talk } from './talk.js';
@@ -21,7 +22,7 @@ import { Chat } from './chat.js';
 import { Friends, loadFriendDefs } from './friends.js';
 import { voices, voiceLabel } from './voice.js';
 import { P, ROADS, SITES } from './mapdata.js';
-import { roster, progressKey, PLACES_KEY, LETTERS_KEY } from './classroom.js';
+import { roster, progressKey, PLACES_KEY, LETTERS_KEY, load as loadClass, save as saveClass, recordGame, summary, wordsToReview } from './classroom.js';
 
 const $ = (id) => document.getElementById(id);
 const frame = () => new Promise((r) => setTimeout(r, 30));
@@ -134,6 +135,11 @@ function adaptResolution(rawDt) {
 // ---------------------------------------------------------------------------
 let world = null;
 const sound = new Sound();
+// reading questions: a place's star waits for its word, and each golden letter asks for its little letter
+const quiz = new Quiz(sound);
+let askOn = true;
+try { askOn = localStorage.getItem('readerbee-questions') !== 'off'; } catch { /* default: on */ }
+let student = null; // the student playing (null: a guest, whose answers aren't kept)
 
 async function build() {
   await progress('Getting the crayons ready…', 0.02);
@@ -229,6 +235,14 @@ addEventListener('keydown', (e) => {
     if (e.code === 'Escape') chat.close();
     return;
   }
+  // a reading question is up: 1, 2, 3 answer it, R hears it, Esc closes it
+  if (quiz.open) {
+    const n = { Digit1: 0, Digit2: 1, Digit3: 2, Numpad1: 0, Numpad2: 1, Numpad3: 2 }[e.code];
+    if (n !== undefined) quiz.pick(n);
+    else if (e.code === 'KeyR') quiz.hear();
+    else if (e.code === 'Escape') quiz.finish(null);
+    return;
+  }
   // browser shortcuts (⌘C, Ctrl+F…) are not game keys; macOS also drops key-ups while ⌘ is held
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   // Enter and Space would also "click" whichever HUD button was clicked last
@@ -291,8 +305,19 @@ canvas.addEventListener('pointermove', (e) => {
 canvas.addEventListener('wheel', (e) => { cam.dist = clamp(cam.dist * Math.exp(clamp(e.deltaY, -120, 120) * 0.0015), 2.5, 30); e.preventDefault(); }, { passive: false });
 
 function toggleMap() {
-  $('bigmap').classList.toggle('hidden');
-  $('bigmapHint').textContent = touch.enabled ? 'Tap a place to go there!' : 'Click a place to go there! · Press M to close';
+  if (quiz.open) return;
+  const map = $('bigmap'), opening = map.classList.contains('hidden');
+  map.classList.toggle('hidden');
+  // during a quest the map is the puzzle: find the word's place on it
+  const q = opening && askOn && started ? quests?.current : null;
+  map.classList.toggle('quest', !!q);
+  $('mapQuest').classList.toggle('hidden', !q);
+  if (q) {
+    $('mapQuestText').innerHTML = `Find ${questPhrase(q).replace(q.word, `<b>${q.word}</b>`)}${q.review ? ' again' : ''} on the map!`;
+    if (listening()) ui.sayQuest();
+  }
+  $('bigmapHint').textContent = q ? (touch.enabled ? 'Tap its picture on the map.' : 'Click its picture on the map · M closes')
+    : touch.enabled ? 'Tap a place to go there!' : 'Click a place to go there! · Press M to close';
   if (ui) ui.hover = null;
 }
 
@@ -546,13 +571,25 @@ function placeSpot(m) {
   return spot && [spot[0], spot[1], m.x, m.z];
 }
 
-/** A click on the minimap or the big map: zoom there (or to the place whose marker was clicked). */
+/**
+ * A click on the big map: zoom there (or to the place whose marker was clicked). During a quest, choosing a
+ * place you haven't found is your answer: the right one stars it on the way; a wrong one says what it is.
+ * The little map always opens the big one (and with reading questions on, places are chosen there).
+ */
 function mapPick(pick, fromMinimap, byTouch) {
-  if (!started || chat?.open) return;
-  // fingers are too big for the little map: open the big one to choose from
-  if (fromMinimap && byTouch) { toggleMap(); return; }
+  if (!started || chat?.open || quiz.open) return;
+  if (fromMinimap && (byTouch || askOn)) { toggleMap(); return; }
   if (pick.friend) { visitFriend(pick.friend); return; }
-  const m = pick.mark, spot = m ? placeSpot(m) : landingSpot(pick.x, pick.z);
+  const m = pick.mark, q = quests?.current;
+  let found = null;
+  if (askOn && m && q && (!ui.found.has(m.id) || m.id === q.id)) {
+    if (m.id !== q.id) { mapMiss(m, q); return; }
+    const listen = listening();
+    record('places', q.word.toLowerCase(), { mark: quests.mapMark(listen), ms: performance.now() - quests.shownAt }, listen ? 'map-listen' : 'map');
+    if (q.review) { quests.reviewDone = true; ui.reviewId = null; }
+    else found = ui.markFound(m);
+  }
+  const spot = m ? placeSpot(m) : landingSpot(pick.x, pick.z);
   if (!spot) return;
   const [x, z, lx, lz] = spot;
   const heading = m && Math.hypot(lx - x, lz - z) > 0.5 ? Math.atan2(lx - x, lz - z) : player.heading;
@@ -561,8 +598,20 @@ function mapPick(pick, fromMinimap, byTouch) {
   sound.whoosh();
   sound.twinkle();
   $('bigmap').classList.add('hidden');
-  ui.toast(m ? `✨ Zoom! To the <b>${m.name}</b>` : '✨ Zoom!');
+  if (found) onFound();
+  else ui.toast(m ? `✨ Zoom! To the <b>${m.name}</b>` : '✨ Zoom!');
 }
+
+/** A wrong place on the map: say what it is, and give a bit more help each time (letters, then a glow, then the ring). */
+function mapMiss(m, q) {
+  quests.tries++;
+  ui.questHint = quests.tries;
+  ui.mapFlash = { mark: m, until: performance.now() + 3500 };
+  const next = quests.tries >= 3 ? 'Tap the red ring!' : quests.tries === 2 ? 'Look where the map glows!' : `Look for <b>${q.word}</b>: ${spell(q.word).toUpperCase()}.`;
+  $('mapQuestText').innerHTML = `That’s the <b>${m.word}</b>. ${next}`;
+  if (!sound.muted) voices.speak(`That's the ${m.word.toLowerCase()}. ${quests.tries === 1 ? `Look for ${spell(q.word)}.` : ''}`, { rate: 0.85 });
+}
+const spell = (word) => word.replace(/ /g, '').toLowerCase().split('').join(', ');
 
 function startGame(idx) {
   playerIdx = idx;
@@ -577,7 +626,8 @@ function startGame(idx) {
     world.talk.add({ pos: () => npc.pos, height: 1.95, lines: () => npc.kid.def.lines, radius: 4.5, sound: 'hi', npc });
   });
   kids[idx].onStep = footstep;
-  quests = new Quests(ui, ui.marks);
+  // once every place is found, quests come back to the words this student hasn't read right first time
+  quests = new Quests(ui, ui.marks, () => (student ? wordsToReview(loadClass(), student.id) : []));
   ui.setLetters(world.play.found);
   started = true;
 }
@@ -629,7 +679,7 @@ function currentPrompt() {
   return null;
 }
 function useAction() {
-  if (!started || chat?.open) return;
+  if (!started || chat?.open || quiz.open) return;
   const pl = world.play;
   const f = friendNear();
   if (f) { openChat(f); return; }
@@ -691,11 +741,92 @@ function beeLetter() {
 }
 
 // ---------------------------------------------------------------------------
+// reading questions (quiz.js): what the child taps is kept for their teacher
+
+/** Children still learning their letters (level 1 or 2 from their teacher's checks) hear the word and find it; others read it. */
+function listening() {
+  if (!student) return false;
+  const level = summary(loadClass(), student.id).level?.n;
+  return !!level && level <= 2;
+}
+/** Keep an answer for the student's teacher (guests' answers aren't kept). */
+function record(kind, item, result, mode) {
+  if (!student) return;
+  const d = loadClass();
+  if (!d.students.some((s) => s.id === student.id)) return; // removed on the teacher page meanwhile
+  recordGame(d, student.id, kind, item, result.mark, result.ms, mode);
+  saveClass(d);
+}
+/** A place has just been found: sparkle, and read its word and sentence aloud. */
+function onFound() {
+  world.fx.sparkle(player.pos.x, player.pos.y + 1.5, player.pos.z, 25, 1.5);
+  if (!sound.muted && !chat?.open) setTimeout(() => ui.speak(true), 600);
+}
+/** Two other island words to choose from: ones that start the same way come first, never ones sharing a word with it. */
+function lookalikes(m) {
+  const w = m.word, parts = w.split(' ');
+  const fair = ui.marks.filter((o) => o !== m && !w.includes(o.word) && !o.word.includes(w) && !o.word.split(' ').some((p) => parts.includes(p)));
+  const score = (o) => (o.word[0] === w[0] ? 0 : 2) + Math.abs(o.word.length - w.length) * 0.3 + Math.random();
+  return fair.sort((a, b) => score(a) - score(b)).slice(0, 2).map((o) => o.word);
+}
+/** Can a question pop up now? Not in the air, swimming, on the zip line or balloon, or over the map. */
+const canAsk = () => player.onGround && !player.swimming && !player.zip && !world.play.riding && $('bigmap').classList.contains('hidden');
+
+/** Walking into a place: tap its word to earn its star (or, on a review quest, to show you can read it now). */
+function askPlace(m) {
+  const listen = listening(), review = ui.found.has(m.id), word = m.word;
+  quiz.ask({
+    icon: '📍', listen, ...shuffled(word, lookalikes(m)),
+    prompt: listen ? 'Find the word you hear:' : review ? 'You’re back! Which word is this place?' : 'What is this place? Tap its word.',
+    say: listen ? word.toLowerCase() : null,
+    help: word.toLowerCase(),
+    wrong: (c) => ({ text: `That says ${c}. Try again!`, say: `That says ${c.toLowerCase()}. Try again!` }),
+    reveal: { text: `This is ${questPhrase(m)}.`, say: `This is ${questPhrase(m).toLowerCase()}. ${spell(word)}. ${word.toLowerCase()}.` },
+    onDone: (r) => {
+      if (!r) { ui.decline(m); return; }
+      record('places', word.toLowerCase(), r, listen ? 'listen' : 'read');
+      if (review) {
+        quests.reviewDone = true;
+        ui.reviewId = null;
+        ui.showPlaceCard();
+        if (!sound.muted) setTimeout(() => ui.speak(true), 300);
+      } else if (ui.markFound(m)) onFound();
+    },
+  });
+}
+
+// little letters that look like other little letters (the ones that look like their big letter, c o s u v w x z, aren't asked)
+const LOOKALIKE = { a: 'oe', b: 'dp', d: 'bq', e: 'ca', f: 'tl', g: 'qy', h: 'nk', i: 'lj', j: 'ig', k: 'hx', l: 'it', m: 'nw', n: 'mh', p: 'qb', q: 'pg', r: 'nv', t: 'fl', y: 'gv' };
+/** A golden letter (a capital): which little letter goes with it? Then its "Q is for QUACK" card. */
+function askLetter(L) {
+  const little = L.ch.toLowerCase();
+  quiz.ask({
+    icon: '🔤', letters: true, ...shuffled(little, LOOKALIKE[little].split('')),
+    prompt: `You found the big ${L.ch}! Which one is the little ${L.ch}?`,
+    say: `Which one is little ${little}?`,
+    help: `${L.word.toLowerCase()} starts with ${little}. Little ${little}.`,
+    wrong: (c) => ({ text: `That’s a little ${c}. Try again!`, say: `That's little ${c}. Try again!` }),
+    reveal: { text: `This is the little ${L.ch}: ${little}`, say: `This is little ${little}.` },
+    onDone: (r) => {
+      if (r) record('lowercase', little, r, 'letter');
+      letterCard(L);
+    },
+  });
+}
+/** The "Q is for QUACK" card, read aloud. */
+function letterCard(L) {
+  ui.flashCard('ALPHABET HUNT', `${L.ch} is for ${L.word}`, L.say, `${L.ch}. ${L.ch} is for ${L.word.toLowerCase()}`);
+  if (!sound.muted && !chat?.open) setTimeout(() => ui.speak(true), 500);
+  if (world.play.found.size === 26) { ui.toast('🔤 You found the whole alphabet! 🎉'); world.fx.celebrate(player.pos.x, player.pos.y, player.pos.z); sound.fanfare(); }
+  else ui.toast(`🔤 You found the letter <b>${L.ch}</b>!`);
+}
+
+// ---------------------------------------------------------------------------
 // tap or click to walk there
 const tapRay = new THREE.Raycaster();
 let walkMark = null;
 function tapAt(cx, cy) {
-  if (!started || chat?.open || player.zip || world.play.riding) return;
+  if (!started || chat?.open || quiz.open || player.zip || world.play.riding) return;
   tapRay.setFromCamera(new THREE.Vector2((cx / innerWidth) * 2 - 1, -(cy / innerHeight) * 2 + 1), camera);
   const ray = tapRay.ray, o = ray.origin, d = ray.direction;
   // a friend? walk up and say hello
@@ -771,7 +902,7 @@ function updatePlayer(dt) {
   let iz = (down('KeyW', 'ArrowUp') ? 1 : 0) - (down('KeyS', 'ArrowDown') ? 1 : 0);
   if (touch.enabled) { ix += touch.move.x; iz += touch.move.y; }
   if (touch.takeJump()) jumpQueued = true;
-  if (chat?.open) { ix = iz = 0; jumpQueued = false; } // standing still while talking
+  if (chat?.open || quiz.open) { ix = iz = 0; jumpQueued = false; } // standing still while talking or answering
   const fx = -Math.sin(cam.yaw), fz = -Math.cos(cam.yaw), rx = Math.cos(cam.yaw), rz = -Math.sin(cam.yaw);
   let mx = fx * iz + rx * ix, mz = fz * iz + rz * ix;
   let ml = Math.hypot(mx, mz), mag = Math.min(1, ml);
@@ -780,7 +911,7 @@ function updatePlayer(dt) {
   const play = world.play;
 
   // walking to a tapped spot (the keys or the joystick take over straight away)
-  if (ml > 0.05 || chat?.open || player.zip || play.riding) player.walk = null;
+  if (ml > 0.05 || chat?.open || quiz.open || player.zip || play.riding) player.walk = null;
   else if (player.walk) {
     const w = player.walk, dx = w.x - p.x, dz = w.z - p.z, dist = Math.hypot(dx, dz);
     if (dist < w.best - 0.25) { w.best = dist; w.stuckT = 0; } else w.stuckT += dt;
@@ -1040,11 +1171,9 @@ function tick(dt) {
     if (snd) sound.animal(snd);
     ui.bubble = world.talk.speaking;
     ui.bubbleNear = world.talk.activeDist < 6;
-    const found = ui.update(dt, player.pos, player.heading, npcs.map((n) => ({ x: n.pos.x, z: n.pos.z, color: n.color })));
-    if (found) {
-      world.fx.sparkle(player.pos.x, player.pos.y + 1.5, player.pos.z, 25, 1.5);
-      if (!sound.muted && !chat?.open) setTimeout(() => ui.speak(true), 600); // read the new word aloud
-    }
+    if (ui.update(dt, player.pos, player.heading, npcs.map((n) => ({ x: n.pos.x, z: n.pos.z, color: n.color })))) onFound();
+    // walking into a new place (or a review quest's place) asks for its word
+    if (ui.pending && !quiz.open && !chat?.open && canAsk()) askPlace(ui.pending);
     if (quests.update(dt, player.pos)) {
       world.fx.celebrate(player.pos.x, player.pos.y, player.pos.z);
       world.buddy.celebrate();
@@ -1056,11 +1185,9 @@ function tick(dt) {
     if (L) {
       sound.pickup();
       kids[playerIdx].cheer(1.3);
-      ui.flashCard('ALPHABET HUNT', `${L.ch} is for ${L.word}`, L.say, `${L.ch}. ${L.ch} is for ${L.word.toLowerCase()}`);
-      if (!sound.muted && !chat?.open) setTimeout(() => ui.speak(true), 500);
       ui.setLetters(world.play.found);
-      if (world.play.found.size === 26) { ui.toast('🔤 You found the whole alphabet! 🎉'); world.fx.celebrate(player.pos.x, player.pos.y, player.pos.z); sound.fanfare(); }
-      else ui.toast(`🔤 You found the letter <b>${L.ch}</b>!`);
+      if (askOn && LOOKALIKE[L.ch.toLowerCase()] && !quiz.open && !chat?.open) askLetter(L);
+      else letterCard(L);
     }
     if (world.play.updateBalls(dt, player, waterLevel)) sound.kick();
     const prompt = chat?.open ? null : currentPrompt();
@@ -1100,7 +1227,7 @@ const beeAnchor = { pos: new THREE.Vector3(), heading: 0 };
 window.__rb = {
   renderer, scene, camera, player, keys, cam, tick, QUALITY, sound, teleport, placeSpot, landingSpot, canStand, tapAt,
   get world() { return world; }, get quests() { return quests; }, get ui() { return ui; }, get npcs() { return npcs; },
-  get chat() { return chat; }, get friends() { return friends; },
+  get chat() { return chat; }, get friends() { return friends; }, quiz, get student() { return student; },
 };
 
 addEventListener('resize', () => {
@@ -1217,6 +1344,21 @@ function setupButtons() {
     ui.toast('⭐ New adventure!');
   };
   $('questHelp').onclick = () => beeHelp();
+  // reading questions: grown-ups can switch them off (the old free play: walking in finds a place)
+  ui.ask = askOn;
+  ui.onHear = () => { if (quests) quests.heard = true; };
+  $('mapQuestHear').onclick = () => ui.sayQuest();
+  const askBtn = $('askToggle');
+  const showAsk = () => (askBtn.textContent = `📖 Questions: ${askOn ? 'on' : 'off'}`);
+  showAsk();
+  askBtn.onclick = () => {
+    askOn = !askOn;
+    ui.ask = askOn;
+    try { localStorage.setItem('readerbee-questions', askOn ? 'on' : 'off'); } catch { /* this visit only */ }
+    showAsk();
+    // standing in a place that was waiting for its question: it's found now
+    if (!askOn && started && ui.current && ui.markFound(ui.current)) onFound();
+  };
   $('btnTime').onclick = () => nextTime();
   const runBtn = $('timeRun');
   const showRun = () => (runBtn.textContent = world.dayNight.running ? '⏸ Stop time' : '▶ Time moves');
@@ -1253,7 +1395,7 @@ function setupButtons() {
     holder.appendChild(b);
   });
   // with a class list (made on the teacher page) each student taps their name first, and gets their own stars and letters
-  let student = null; // null: a guest, who keeps the stars and letters this device already had
+  // (student, set here, is null for a guest, who keeps the stars and letters this device already had)
   const students = roster().slice().sort((a, b) => a.nickname.localeCompare(b.nickname, undefined, { sensitivity: 'base' }));
   const showPick = (s) => {
     student = s;

@@ -2,9 +2,11 @@
 // The Fry words come from src/wordlists.js, so the game and the database use the same list.
 //
 //   node supabase/content/build-content.mjs > supabase/migrations/<timestamp>_reading_content_data.sql
+//   node supabase/content/build-content.mjs island > supabase/migrations/<timestamp>_island_words.sql
 //
 // Migrations that have run can't change: to change content later, add a new migration.
 import { FRY, LETTERS } from '../../src/wordlists.js';
+import { LANDMARKS } from '../../src/mapdata.js';
 
 // A common US phonics set of 44 sounds, plus x (/ks/) and qu (/kw/), which are taught as one sound.
 const SOUNDS = [
@@ -125,6 +127,23 @@ const CHECK_KINDS = [
 const q = (v) => (v === null || v === undefined ? 'null' : typeof v === 'number' || typeof v === 'boolean' ? String(v) : `'${String(v).replace(/'/g, "''")}'`);
 const values = (rows) => rows.map((r) => `  (${r.map(q).join(', ')})`).join(',\n');
 const insert = (table, cols, rows) => `insert into public.${table} (${cols.join(', ')}) values\n${values(rows)};\n`;
+
+// the island's place words (the game's quests and the "Island words" check), lower case like the Fry words
+if (process.argv[2] === 'island') {
+  const words = LANDMARKS.map((l) => l.word.toLowerCase());
+  if (new Set(words).size !== words.length) throw new Error('src/mapdata.js has two places with the same word');
+  process.stdout.write([
+    '-- The island\'s place words, written by supabase/content/build-content.mjs island (from src/mapdata.js). Do not edit by hand.\n',
+    `insert into public.words (text) values\n${values(words.map((w) => [w]))}\non conflict (text) do nothing;\n`,
+    insert('word_lists', ['id', 'name', 'source'], [['island', 'Island words', 'ReaderBee World places (src/mapdata.js)']]),
+    `insert into public.word_list_items (list_id, position, word_id)
+select 'island', v.position, w.id from (values\n${values(words.map((w, i) => [i + 1, w]))}\n) as v (position, text)
+join public.words w on w.text = v.text;\n`,
+    insert('skills', ['id', 'name', 'position'], [['island-words', 'Island words', SKILLS.length + 1]]),
+    insert('check_kinds', ['id', 'title', 'skill_id', 'word_list_id', 'position'], [['places', 'Island words', 'island-words', 'island', CHECK_KINDS.length + 1]]),
+  ].join('\n'));
+  process.exit(0);
+}
 
 if (new Set(FRY).size !== FRY.length) throw new Error('src/wordlists.js has a repeated Fry word');
 const known = new Set(SOUNDS.map((s) => s[0]));
