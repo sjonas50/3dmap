@@ -51,7 +51,7 @@ The game needs a current browser (Chrome, Edge, Firefox, or Safari 16.4+ on Mac 
 | H | | hide the help box |
 
 Hovering over a map shows where you will land, and the word for a place you have found (the others' words are what the reading questions ask). If you click the sea, you land on the nearest dry land.
-The top-right buttons are ☀️/🌙 (time of day), 🏠 (go home), 🔊 (sound on/off) and ⚙️. Settings has picture quality, a time-of-day picker, a button to stop the clock, the talking-friends switches, and "start over" (it asks before it erases anything).
+The top-right buttons are ☀️/🌙 (time of day), 🏠 (go home), 🔊 (sound on/off) and ⚙️. Settings has picture quality, a time-of-day picker, a button to stop the clock, the talking-friends switches, the reading-questions switch, the class this device is in, and "start over" (it asks before it erases anything).
 New places and letters are read aloud when you find them (unless the sound is off).
 
 ### Getting the most natural voice
@@ -83,7 +83,7 @@ Reading aloud uses the voices built into the browser and the device, so how natu
 - **Balls** – kick the beach balls and soccer balls around.
 - **Kite** – look for the kite flying by the seal beach.
 
-Stars and letters are saved in the browser.
+Stars and letters are saved in the browser, and on a class's devices in the school account too, so they follow a child from one device to the next (see Class devices below).
 
 ## Talking friends: how they work, and keeping children safe
 
@@ -107,7 +107,7 @@ Before real children use this outside your own home or classroom, check the rule
 
 Open **👩‍🏫 For teachers** on the start screen (or go to `http://localhost:8642/teacher.html`). A multiplication question keeps young children out; it is asked once per visit.
 
-- **Add your students**, one name per line. First names or nicknames are enough. In the game, each student then taps their name before playing and gets their own stars and golden letters on that device. **Just play** plays as a guest, with the stars and letters the device already had. ⚙️ Settings → Who's playing → Change goes back to the names.
+- **Add your students**, one name per line. First names or nicknames are enough. In the game, each student then taps their name before playing and gets their own stars and golden letters on that device (on the class's devices, on all of them). **Just play** plays as a guest, with the stars and letters the device already had. ⚙️ Settings → Who's playing → Change goes back to the names.
 - **Give a reading check** one-to-one: open a student and press **Start a reading check**. The child reads the big card aloud and you tap how it went: **✓ Knew it** (right within about 3 seconds), **🐢 Slow** (got it with effort) or **✗ Not yet**. On a keyboard: → knew it, ↓ slow, ← not yet, Backspace undo, Esc end. There are seven checks: capital letters, lowercase letters, letter sounds (with a hint of what to listen for), Fry sight words 1–100, 101–200 and 201–300, and the 37 island words. Letters come in a new random order each time and Fry words in list order. Re-checks skip what the child already knows, and word lists stop after 5 "not yet" answers in a row.
 - **Levels** come from quick, correct answers only:
 
@@ -125,6 +125,7 @@ Open **👩‍🏫 For teachers** on the start screen (or go to `http://localhos
 - **Reports**: the class page shows each student's level and counts, groups by level for small-group work, and the words the fewest students know. A student's page shows next steps (letters and sounds to learn, the next sight words to practise), every letter and word in colour, and their check history. **In the game** shows what the student showed while playing: each island word and little letter, right first time, with help or a second try, or not yet. Those are taps out of three choices (a lucky guess is possible), so they never change the level: a reading check confirms. It prints cleanly. You can download a summary or every answer as a spreadsheet.
 - **Where results are kept**: in this browser on this device, and, once you sign in, in your school's account too (see below). Without an account, use **Save a backup file** now and then (clearing the browser's data would erase the results), and **Restore from a backup file** to move a class to another device. Students' names only ever go to your school's account: the talking friends only hear the name of the game character.
 - **School account**: when this computer has a school account set up (below), the class page has a **School account** card. Sign in with Google, Microsoft or an emailed link, start your school or open it, then **Save** the class on this device to it or **Open** a class from it. After that every change is saved on the device first and sent when there's a connection, so checks keep working without Wi-Fi; the line at the top says whether everything is synced. Open the class on another device to see the same students and results, including checks given there. An aide sees the class and gives checks, but the class list belongs to its teacher. Signing out takes the class off the device (it stays in the account).
+- **Class devices**: once the class is in the school account, its teacher (or a school admin) can let the class's iPads and computers play as the students. **Show a code for devices** on the class page gives an 8-character code, with a QR code, that works for two hours. On each device a grown-up opens the game, taps **🏫 Join a class** at the bottom of the start screen and types the code (or scans the QR code with the device's camera, which opens the game with the code filled in), then taps **Join**. From then on the game's start screen lists the class, each child taps their name, and what they answer in the game comes to their report's **In the game** card. Their stars and golden letters follow them from one device to another, and "start over" starts them over on every device. A device keeps a copy of the class list, so children can play without Wi-Fi; their answers are sent when the connection is back. The card lists the class's devices ("Device 3 · iPad", when it joined and was last used): **Remove** takes one out of the class, and its answers so far stay. On a device, ⚙️ Settings → Class (or the 🏫 link on the start screen) shows its class and whether everything was sent; taking it out of the class there asks a grown-up's sum first. A device sees only its class's nicknames, never results, other classes or staff.
 
 The Fry list is in `src/wordlists.js`, from sightwords.com's "Fry Sight Words Listed by Frequency". Printed editions differ slightly ("animal" or "animals"), so change a word there to match your school's list.
 
@@ -133,7 +134,7 @@ The Fry list is in `src/wordlists.js`, from sightwords.com's "Fry Sight Words Li
 Teachers sign in on the teacher pages and their classes sync with the school's account. It is plain Postgres on [Supabase](https://supabase.com), defined in `supabase/migrations/`:
 
 - **Reading content**, the same for every school and readable by anyone: letters, the 44 sounds (plus x and qu), 66 spellings and the sounds each can make, chunks (word families like -at, blends like bl-, prefixes and suffixes), words with their syllables and sound-by-sound parts (the tables are ready; filling them in is a later step), the Fry lists 1–300, skills in teaching order, and the six checks. `decodable_words()` finds the words a child can sound out from the spellings they know.
-- **School data**, private to each school: schools, staff, classes, which staff work in which class, students (a nickname only), and every check and answer. Answers can only be items of the check (a letter or a list word), so no free text is ever stored.
+- **School data**, private to each school: schools, staff, classes, which staff work in which class, students (a nickname only), every check and answer, the classroom devices in each class, and the stars and letters each student has found on them. Answers can only be items of the check (a letter or a list word), so no free text is ever stored.
 - **Roles**, enforced inside the database (row-level security), so they hold whatever the client does:
 
   | Role | Can |
@@ -141,9 +142,10 @@ Teachers sign in on the teacher pages and their classes sync with the school's a
   | School admin | see every class in the school, add staff, delete classes and results |
   | Teacher | manage their own classes: students, colleagues in the class, checks and results |
   | Aide | see their classes and give checks; can't change the class list or delete results |
+  | Classroom device | see its class's nicknames; save game answers, stars and letters for them (through the device functions only) |
   | Not signed in | read the reading content only |
 
-  Teachers sign in with their school Google or Microsoft account (or an emailed link). Students don't sign in.
+  Teachers sign in with their school Google or Microsoft account (or an emailed link). Students don't sign in: a classroom device signs in anonymously once a grown-up types its class's code.
 
 The teacher pages find the project through two lines in `.env` (see `.env.example`), which `serve.py` hands to the browser at `/api/config`:
 
@@ -153,6 +155,8 @@ SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 ```
 
 The publishable key is meant to be public: the database's rules protect the data. Never put the secret key there; `serve.py` refuses to hand one out. Without these lines the teacher pages work as before, with everything on the device. `src/cloud.js` does the signing in and syncing: changes are saved on the device first and sent in order (the class name, removed students, students, then checks); then the account's copy of the class comes back, so checks given on other devices show up. Changes made on the device and not yet sent always win.
+
+**Classroom devices** (`supabase/migrations/20261015120000_class_devices.sql`, `src/device.js`): a teacher's `make_join_code()` gives the class an 8-character code (no 0, O, 1, I or L) that works for two hours; making a new one stops the old one. A device signs in with Supabase Auth's anonymous sign-ins and calls `join_class()` with the code. A device gets 5 wrong tries in 10 minutes and 20 a day, a class at most 100 devices, and anonymous sign-ins are limited per internet address, so codes can't be guessed. After that the device can only call `device_class()` (the nicknames, whether the game reads words to each student, their stars and letters, and their latest game answer to each island word), `save_game()` (island words and little letters, for its own class's students), `save_progress()` and `leave_class()`. Restrictive rules on every school table keep a device's sign-in out of everything else, and grown-ups' sign-ins can't join as devices. A device that lost its sign-in (for example when its browser storage was cleared) joins again with a new code and takes back its old place in the list.
 
 Run it locally (needs Docker):
 
@@ -169,10 +173,10 @@ Studio, a web view of the tables, is at http://127.0.0.1:54323 while it runs. Wi
 Going live, when you're ready:
 
 1. Create a project at supabase.com (a US region), then `supabase link --project-ref <your project ref>` and `supabase db push`.
-2. In Authentication → Providers, turn on Google and/or Azure (Microsoft), and in URL Configuration set the site URL and add `teacher.html`'s address as a redirect URL. Put the project URL and publishable key in `.env`.
+2. In Authentication → Providers, turn on Google and/or Azure (Microsoft), and in URL Configuration set the site URL and add `teacher.html`'s address as a redirect URL. For class devices, turn on anonymous sign-ins (Authentication → Sign In / Providers). A school's devices usually share one internet address, so raise the limit for anonymous sign-ins per hour (Authentication → Rate Limits, 30 by default) before a whole school sets up its devices at once. Put the project URL and publishable key in `.env`.
 3. Before real students' results go in: sign Supabase's data processing agreement, publish a privacy notice with how long results are kept, and get each school's agreement (FERPA, COPPA's rules for schools, and state student-privacy laws). Many districts ask vendors to sign their data privacy agreement.
 
-Not done yet: a page for admins to add staff (for now `add_school_member()`, or the Supabase dashboard), signing in student devices so the game's progress syncs too, and filling in each word's syllables and sounds.
+Not done yet: a page for admins to add staff (for now `add_school_member()`, or the Supabase dashboard), clearing out anonymous sign-ins of devices that have left their class, and filling in each word's syllables and sounds.
 
 ## Code layout
 
@@ -198,9 +202,10 @@ Not done yet: a page for admins to add staff (for now `add_school_member()`, or 
 - `src/audio.js` – synthesised sound: wind, waves, river, birds by day, crickets and the owl at night, footsteps, boings, whooshes and chimes. There are no audio files. It goes quiet when the tab is in the background.
 - `src/touch.js` – the on-screen joystick and buttons (they appear on tablets, or on a touch-screen laptop once you touch the screen).
 - `src/ui.js` – the HUD: place cards, letter cards, the quest panel, read-aloud, stars and letters (saved in the browser), the firefly count, and the minimap.
-- `teacher.html`, `src/teacher.js` – the teacher pages: class list, the one-to-one reading check, class and student reports, spreadsheets and backups.
+- `teacher.html`, `src/teacher.js` – the teacher pages: class list, the one-to-one reading check, class and student reports, the class's devices and join code, spreadsheets and backups.
 - `src/classroom.js` – the class data shared by the game and the teacher pages: students, checks and answers, levels, next steps, exports, and the bookkeeping for syncing (what hasn't been sent yet, and merging the account's copy).
 - `src/cloud.js` – signing in to the school account and syncing the class with it (Supabase).
+- `src/device.js` – classroom devices: joining a class with its code, the class list kept on the device, and sending game answers, stars and letters to the school account.
 - `src/wordlists.js` – Fry words 1–300, the letters, and what each letter sound should sound like.
 - `supabase/` – the backend: `migrations/` (tables, roles, functions, content), `tests/` (who can see and change what), `content/build-content.mjs` (writes the content migration), and `config.toml` for the local stack.
 

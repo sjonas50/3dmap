@@ -42,9 +42,16 @@
   .school { margin: 6px 0 12px; }
   .school h4 { margin: 0 0 6px; }
   .signin { margin-top: 10px; }
+  .joincode { display: flex; gap: 16px 24px; flex-wrap: wrap; align-items: center; margin: 4px 0 8px; }
+  .joincode .grow { flex: 1 1 300px; }
+  .joincode p { margin: 6px 0 10px; }
+  .joincode .code { font: 700 46px/1.1 Andika, sans-serif; letter-spacing: 0.12em; }
+  .joincode .qr { width: 180px; flex: none; }
+  .joincode .qr svg { display: block; width: 100%; height: auto; border: 2px solid var(--line); border-radius: 10px; }
   .signin input { border: 2px solid var(--ink); border-radius: 10px; padding: 6px 10px; min-width: 15em; background: #fff; }
   details.signin summary { color: var(--muted); }
-  main { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  /* minmax(0, …): a wide table scrolls inside its card instead of stretching the page past a phone or iPad screen */
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .card { background: var(--paper); border: 3px solid var(--ink); border-radius: 18px; padding: 16px 18px; box-shadow: 0 4px 0 var(--ink); }
   .card h2 { font-size: 26px; }
   .card h3 { font-size: 21px; margin-bottom: 8px; }
@@ -71,7 +78,7 @@
   .groups { display: grid; gap: 8px; }
   .group b { margin-right: 6px; }
   .words { display: flex; flex-wrap: wrap; gap: 6px 14px; }
-  .words span { white-space: nowrap; }
+  .words > span:not(.dim) { white-space: nowrap; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .confirm { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #fff2c4; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .confirm input { border: 2px solid var(--ink); border-radius: 10px; padding: 4px 10px; }

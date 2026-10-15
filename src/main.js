@@ -23,6 +23,7 @@ import { Friends, loadFriendDefs } from './friends.js';
 import { voices, voiceLabel } from './voice.js';
 import { P, ROADS, SITES } from './mapdata.js';
 import { roster, progressKey, PLACES_KEY, LETTERS_KEY, load as loadClass, save as saveClass, recordGame, summary, wordsToReview } from './classroom.js';
+import { Device, load as loadDevice, progress as deviceProgress, review as deviceReview, pendingCount as devicePending } from './device.js';
 
 const $ = (id) => document.getElementById(id);
 const frame = () => new Promise((r) => setTimeout(r, 30));
@@ -140,6 +141,8 @@ const quiz = new Quiz(sound);
 let askOn = true;
 try { askOn = localStorage.getItem('readerbee-questions') !== 'off'; } catch { /* default: on */ }
 let student = null; // the student playing (null: a guest, whose answers aren't kept)
+// a classroom device in a class (device.js): the class list comes from the school account, and answers go back to it
+const device = new Device();
 
 async function build() {
   await progress('Getting the crayons ready…', 0.02);
@@ -231,6 +234,10 @@ let chat = null, friends = null;
 addEventListener('keydown', (e) => {
   // typing in the chat box: the letters are words, not game keys
   if (e.target.closest?.('input, textarea')) return;
+  if (!$('joinBox').classList.contains('hidden')) {
+    if (e.code === 'Escape') $('joinBox').classList.add('hidden');
+    return;
+  }
   if (chat?.open) {
     if (e.code === 'Escape') chat.close();
     return;
@@ -627,7 +634,7 @@ function startGame(idx) {
   });
   kids[idx].onStep = footstep;
   // once every place is found, quests come back to the words this student hasn't read right first time
-  quests = new Quests(ui, ui.marks, () => (student ? wordsToReview(loadClass(), student.id) : []));
+  quests = new Quests(ui, ui.marks, () => (!student ? [] : device.class ? deviceReview(loadDevice(), student.id) : wordsToReview(loadClass(), student.id)));
   ui.setLetters(world.play.found);
   started = true;
 }
@@ -746,12 +753,14 @@ function beeLetter() {
 /** Children still learning their letters (level 1 or 2 from their teacher's checks) hear the word and find it; others read it. */
 function listening() {
   if (!student) return false;
+  if (device.class) return !!device.students.find((s) => s.id === student.id)?.listen;
   const level = summary(loadClass(), student.id).level?.n;
   return !!level && level <= 2;
 }
 /** Keep an answer for the student's teacher (guests' answers aren't kept). */
 function record(kind, item, result, mode) {
   if (!student) return;
+  if (device.class) { device.record(student.id, kind, item, result.mark, result.ms, mode); return; }
   const d = loadClass();
   if (!d.students.some((s) => s.id === student.id)) return; // removed on the teacher page meanwhile
   recordGame(d, student.id, kind, item, result.mark, result.ms, mode);
@@ -1331,6 +1340,7 @@ function setupButtons() {
   $('resetNo').onclick = () => confirmReset(false);
   $('resetYes').onclick = () => {
     confirmReset(false);
+    if (student && device.class) device.startOver(student.id); // on every one of the class's devices
     ui.resetFound();
     ui.current = null;
     quests.reset();
@@ -1368,6 +1378,102 @@ function setupButtons() {
 }
 
 // ---------------------------------------------------------------------------
+// classroom devices (device.js): a grown-up types the class's code once, then the class's children tap their name
+
+const classLabel = (c) => `${c.name}${c.school ? ` at ${c.school}` : ''}`;
+/** What the class box (and Settings) say about this device. */
+function classStatus() {
+  const c = device.class, d = loadDevice();
+  if (!c) return device.notice || 'This device isn’t in a class yet. Once it is, each child taps their name to play, and what they read goes to their teacher.';
+  const n = devicePending(d);
+  const state = device.state === 'out' ? 'It needs its class code again: type the code from the teacher page.'
+    : device.state === 'error' ? `Couldn’t send answers: ${device.error}`
+      : device.state === 'offline' ? (n ? 'Answers are waiting for the internet.' : 'No internet right now.')
+        : n ? 'Sending answers…' : 'Answers go to the teacher.';
+  return `Device ${d.number} in ${classLabel(c)}. ${state}`;
+}
+
+/** The class box: join a class with its code, or take the device out of it. */
+function setupClass(onJoinOrLeave, onClassList) {
+  const box = $('joinBox'), msg = (t) => ($('joinMsg').textContent = t);
+  let want = 0;
+  const show = () => {
+    const c = device.class;
+    $('joinStatus').textContent = classStatus();
+    $('joinLabel').textContent = !c ? 'Grown-ups: type the code from the teacher page (For teachers → Class devices).'
+      : device.state === 'out' ? 'The class code:' : 'To move this device to another class, type that class’s code:';
+    $('leaveOpen').classList.toggle('hidden', !c);
+    $('joinOpen').textContent = c ? `🏫 ${c.name}` : '🏫 Join a class';
+    $('classNote').textContent = classStatus();
+    $('startNote').textContent = c ? '' : device.notice;
+  };
+  const open = (code = '') => {
+    show();
+    msg('');
+    $('joinCode').value = code;
+    $('leaveGate').classList.add('hidden');
+    box.classList.remove('hidden');
+    $('joinCode').focus();
+  };
+  const close = () => box.classList.add('hidden');
+  const done = () => setTimeout(() => { close(); onJoinOrLeave(); }, 1800);
+  $('joinOpen').onclick = () => open();
+  $('classOpen').onclick = () => { $('settings').classList.add('hidden'); open(); };
+  $('joinClose').onclick = close;
+  box.addEventListener('click', (e) => e.target === box && close());
+  $('joinForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const code = $('joinCode').value.replace(/[^a-z0-9]/gi, '');
+    if (code.length !== 8) { msg('The code has 8 letters and numbers, like ABCD 2345.'); return; }
+    $('joinGo').disabled = true;
+    msg('Joining…');
+    try {
+      const c = await device.join(code);
+      $('joinCode').value = '';
+      show();
+      msg(`This device is in ${classLabel(c)} now. Children tap their name to play.`);
+      done();
+    } catch (err) {
+      msg(err.message);
+    } finally {
+      $('joinGo').disabled = false;
+    }
+  };
+  // taking the device out of its class needs a grown-up's sum, so children can't do it by accident
+  $('leaveOpen').onclick = () => {
+    const a = 6 + Math.floor(Math.random() * 4), b = 6 + Math.floor(Math.random() * 4);
+    want = a * b;
+    $('leaveQ').textContent = `Grown-ups: ${a} × ${b} =`;
+    $('leaveA').value = '';
+    $('leaveGate').classList.remove('hidden');
+    $('leaveA').focus();
+  };
+  $('leaveGate').onsubmit = async (e) => {
+    e.preventDefault();
+    $('leaveGate').classList.add('hidden');
+    if (Number($('leaveA').value.trim()) !== want) { msg('Not quite, so the device stays in its class.'); return; }
+    const name = device.class?.name;
+    await device.leave();
+    show();
+    msg(`This device isn’t in ${name || 'the class'} any more. Answers already sent stay with the teacher.`);
+    done();
+  };
+  device.onChange = () => { show(); onClassList(); };
+  show();
+  // the teacher page's QR code opens the game with #join=CODE: the code is filled in, and a grown-up taps Join
+  const m = location.hash.match(/^#join=([A-Za-z0-9-]{4,20})$/);
+  if (m) {
+    history.replaceState(null, '', location.pathname + location.search);
+    open(m[1]);
+  }
+  // bring in the class list and send what's waiting: now, when the internet comes back, and every minute
+  if (device.class) device.sync({ refresh: true });
+  addEventListener('online', () => device.class && device.sync({ refresh: true }));
+  document.addEventListener('visibilitychange', () => { if (document.hidden && device.class) device.sync({ refresh: false }); });
+  setInterval(() => { if (device.class && !document.hidden) device.sync(); }, 60000);
+}
+
+// ---------------------------------------------------------------------------
 (async () => {
   try {
     await build();
@@ -1394,9 +1500,10 @@ function setupButtons() {
     };
     holder.appendChild(b);
   });
-  // with a class list (made on the teacher page) each student taps their name first, and gets their own stars and letters
-  // (student, set here, is null for a guest, who keeps the stars and letters this device already had)
-  const students = roster().slice().sort((a, b) => a.nickname.localeCompare(b.nickname, undefined, { sensitivity: 'base' }));
+  // with a class list each student taps their name first, and gets their own stars and letters: the class this device
+  // is in (device.js), or else the one made on the teacher page on this device. (student, set here, is null for a
+  // guest, who keeps the stars and letters this device already had.)
+  let students = [];
   const showPick = (s) => {
     student = s;
     $('who').classList.add('hidden');
@@ -1405,24 +1512,43 @@ function setupButtons() {
     $('notMe').textContent = s ? `Not ${s.nickname}?` : '← Back';
     $('notMe').classList.toggle('hidden', !students.length);
   };
-  if (students.length) {
-    const nameButton = (s) => {
-      const b = document.createElement('button');
-      b.className = s ? 'who' : 'who guest';
-      b.textContent = s ? s.nickname : 'Just play';
-      if (s) b.style.setProperty('--c', s.color);
-      b.onclick = () => showPick(s);
-      return b;
-    };
+  const nameButton = (s) => {
+    const b = document.createElement('button');
+    b.className = s ? 'who' : 'who guest';
+    b.textContent = s ? s.nickname : 'Just play';
+    if (s) b.style.setProperty('--c', s.color);
+    b.onclick = () => showPick(s);
+    return b;
+  };
+  /** "Who's playing?", or straight to picking a friend when there's no class list. */
+  const showWho = () => {
+    students = (device.class ? device.students : roster()).slice().sort((a, b) => a.nickname.localeCompare(b.nickname, undefined, { sensitivity: 'base' }));
+    if (!students.length) { showPick(null); return; }
+    $('whoSub').textContent = device.class ? `${device.class.name}: who's playing? Tap your name.` : "Who's playing? Tap your name.";
     $('whoList').replaceChildren(...students.map(nameButton), nameButton(null));
     $('who').classList.remove('hidden');
     $('pick').classList.add('hidden');
-  }
-  $('notMe').onclick = () => { $('pick').classList.add('hidden'); $('who').classList.remove('hidden'); };
+  };
+  showWho();
+  $('notMe').onclick = showWho;
+  // joining or leaving a class: show its names (a game in progress starts again from "Who's playing?")
+  setupClass(() => (started ? location.reload() : showWho()), () => {
+    if (!started && !$('who').classList.contains('hidden')) showWho(); // the class list came in while the names show
+  });
+  // stars and golden letters found on a class's device follow the student to the class's other devices
+  ui.onFind = (m) => { if (student && device.class) device.found(student.id, { places: [m.id] }); };
+  world.play.onFind = (ch) => { if (student && device.class) device.found(student.id, { letters: [ch] }); };
   $('start').classList.remove('hidden');
   $('play').onclick = () => {
     $('start').classList.add('hidden');
     $('hud').classList.remove('hidden');
+    if (student && device.class) {
+      const p = deviceProgress(loadDevice(), student.id);
+      try {
+        localStorage.setItem(progressKey(PLACES_KEY, student.id), JSON.stringify(p.places));
+        localStorage.setItem(progressKey(LETTERS_KEY, student.id), JSON.stringify(p.letters));
+      } catch { /* storage blocked: the stars are kept in the school account all the same */ }
+    }
     ui.useStore(progressKey(PLACES_KEY, student?.id));
     world.play.useStore(progressKey(LETTERS_KEY, student?.id));
     if (student) {

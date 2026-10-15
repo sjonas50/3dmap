@@ -145,6 +145,7 @@ function classView() {
       </form>`}
     </section>
     <div id="accountBox"></div>
+    <div id="devicesBox"></div>
     ${rows.length ? `<section class="card"><h3>Groups by level</h3><div class="groups">${groups}</div>
       <p class="dim">Levels: ${LEVELS.map((l) => `${l.n} ${esc(l.name)} (${esc(l.rule)})`).join(' · ')}. Only quick, correct answers count.</p></section>
     <section class="card"><div class="bar"><h3>Words to teach next</h3><select id="wtKind" aria-label="Word list">
@@ -198,6 +199,8 @@ function classView() {
   };
   accountMode = '';
   renderAccount();
+  devicesFor = '';
+  renderDevices();
 }
 
 function studentView(s) {
@@ -313,7 +316,7 @@ function renderAccount() {
   if (mode === 'signed-out') {
     box.innerHTML = `<section class="card">
       <h3>School account</h3>
-      <p>Sign in to keep this class in your school’s account and use it on any device. Nicknames and results go only to your school’s account.</p>
+      <p>Sign in to keep this class in your school’s account, use it on any device, and let the class’s iPads and computers join it. Nicknames and results go only to your school’s account.</p>
       <div class="row"><button class="primary" data-provider="google">Sign in with Google</button><button class="primary" data-provider="azure">Sign in with Microsoft</button></div>
       <form id="emailForm" class="row signin"><input id="emailAddr" type="email" required placeholder="you@school.org" autocomplete="email" aria-label="Email address" />
         <button>Email me a sign-in link</button></form>
@@ -459,7 +462,91 @@ function onCloudChange() {
   status();
   // redraw after a sync brought in changes, unless a check is running or someone is typing
   if (!run && signature() !== shown && !document.activeElement?.matches?.('input, textarea, select')) route();
-  else renderAccount();
+  else { renderAccount(); renderDevices(); }
+}
+
+// ---------------------------------------------------------------------------------------------
+// the class's iPads and computers (device.js in the game): a code joins each one to the class, then children
+// tap their name in the game and their answers come here
+
+const QR = 'https://cdn.jsdelivr.net/npm/uqr@0.1.2/+esm';
+let codeTimer = 0;
+let devicesFor = ''; // whose Class devices card is showing, so syncing doesn't keep reloading it
+const spaced = (code) => `${code.slice(0, 4)} ${code.slice(4)}`;
+const clock = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const lastUsed = (t) => (new Date(t).toDateString() === new Date().toDateString() ? `today ${clock(t)}` : day(Date.parse(t)));
+
+/** A QR code (as SVG) for the game's address with the code, with the white border scanners need. */
+async function qrSVG(text) {
+  const { encode } = await import(QR);
+  const q = encode(text, { ecc: 'M', border: 0 }), pad = 4, n = q.size + 2 * pad;
+  let path = '';
+  q.data.forEach((row, y) => row.forEach((on, x) => { if (on) path += `M${x + pad} ${y + pad}h1v1h-1z`; }));
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${n} ${n}" shape-rendering="crispEdges" role="img" aria-label="QR code for joining this class">
+    <rect width="${n}" height="${n}" fill="#fff"/><path d="${path}" fill="#000"/></svg>`;
+}
+
+/** The Class devices card, for the class's teachers and school admins: shown (or hidden) when that changes; force reloads it. */
+function renderDevices(force = false) {
+  const box = $('devicesBox');
+  if (!box) return;
+  const key = data.cloud && cloud.user && data.cloud.role && !isAide() ? `${cloud.user.id}:${data.cloud.classId}` : '';
+  if (key === devicesFor && !force) return;
+  devicesFor = key;
+  clearTimeout(codeTimer);
+  if (key) loadDevices(box, data.cloud.classId);
+  else box.innerHTML = '';
+}
+
+/** The class's join code (with a QR code) and the devices in the class. */
+async function loadDevices(box, classId) {
+  box.innerHTML = `<section class="card"><div class="bar"><h3>Class devices</h3><span class="grow"></span><button id="devRefresh">Refresh</button></div>
+    <p>Let the class’s iPads and computers play as your students. A grown-up joins each device once with a code; then each child taps their
+      name in the game, and the island words they read and the letters they match show up here. Stars and letters follow a child from one device to another.
+      A device sees only the class’s nicknames.</p>
+    <div id="codeBox"><p class="dim">Loading…</p></div><div id="deviceList"></div><div id="devMsg" class="dim"></div></section>`;
+  const reload = () => renderDevices(true);
+  $('devRefresh').onclick = reload;
+  let code, devices;
+  try { [code, devices] = await Promise.all([cloud.joinCode(classId), cloud.devices(classId)]); } catch (e) {
+    if ($('codeBox')) $('codeBox').innerHTML = `<p>Couldn’t reach your school account: ${esc(e.message)}</p>`;
+    return;
+  }
+  if (!$('codeBox') || data.cloud?.classId !== classId) return; // the page changed meanwhile
+  const msg = (html) => ($('devMsg').innerHTML = html);
+  const game = new URL('index.html', location.href).href;
+  if (code) {
+    $('codeBox').innerHTML = `<div class="joincode"><div class="grow">
+        <div class="code" aria-label="Class code">${esc(spaced(code.code))}</div>
+        <p>On each device, open the game (<b>${esc(game)}</b>), tap <b>🏫 Join a class</b> at the bottom and type the code, or scan the QR code
+          with the device’s camera. Works until <b>${esc(clock(code.expires_at))}</b>.</p>
+        <div class="row"><button id="newCode">New code</button><button id="stopCode">Stop the code</button></div></div>
+      <div class="qr" id="qr"></div></div>`;
+    qrSVG(`${game}#join=${code.code}`).then((svg) => { if ($('qr')) $('qr').innerHTML = svg; }).catch(() => { if ($('qr')) $('qr').remove(); });
+    codeTimer = setTimeout(reload, Math.max(1000, Date.parse(code.expires_at) - Date.now() + 1000)); // show when it runs out
+  } else {
+    $('codeBox').innerHTML = `<div class="row"><button class="primary" id="newCode">Show a code for devices</button>
+      <span class="dim">A code works for two hours. Devices that have joined stay in the class.</span></div>`;
+  }
+  $('newCode').onclick = async () => {
+    try { await cloud.makeJoinCode(classId); reload(); } catch (e) { msg(esc(e.message)); }
+  };
+  if ($('stopCode')) $('stopCode').onclick = async () => {
+    try { await cloud.stopJoinCode(classId); reload(); } catch (e) { msg(esc(e.message)); }
+  };
+  $('deviceList').innerHTML = devices.length ? `<h4>In this class: ${plural(devices.length, 'device')}</h4><div class="scroll"><table>
+      <thead><tr><th>Device</th><th>Joined</th><th>Last used</th><th></th></tr></thead>
+      <tbody>${devices.map((v) => `<tr><td>Device ${v.number}${v.label ? ` · ${esc(v.label)}` : ''}</td><td>${day(Date.parse(v.joined_at))}</td>
+        <td>${esc(lastUsed(v.last_seen))}</td><td><button data-remove="${esc(v.id)}">Remove</button></td></tr>`).join('')}</tbody></table></div>
+      ${devices.length > 1 ? '<p><button id="removeAll" class="danger">Remove every device</button></p>' : ''}`
+    : '<p class="dim">No devices have joined this class yet.</p>';
+  for (const b of $('deviceList').querySelectorAll('[data-remove]')) {
+    const v = devices.find((x) => x.id === b.dataset.remove);
+    b.onclick = () => confirmIn($('devMsg'), `<span>Take Device ${v.number} out of the class? Its answers so far stay here; to use it again, join it with a new code.</span>`,
+      'Remove', async () => { try { await cloud.removeDevices(classId, v.id); toast(`Removed Device ${v.number}`); reload(); } catch (e) { msg(esc(e.message)); } });
+  }
+  if ($('removeAll')) $('removeAll').onclick = () => confirmIn($('devMsg'), `<span>Take all ${devices.length} devices out of the class? Their answers so far stay here.</span>`,
+    'Remove every device', async () => { try { await cloud.removeDevices(classId); toast('Removed every device'); reload(); } catch (e) { msg(esc(e.message)); } });
 }
 
 // ---------------------------------------------------------------------------------------------

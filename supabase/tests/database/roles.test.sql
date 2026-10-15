@@ -43,7 +43,7 @@ insert into public.responses (session_id, seq, item, mark) values
   ('c0000000-0000-4000-8000-000000000002', 0, 'A', 'knew'), ('c0000000-0000-4000-8000-000000000003', 0, 'the', 'knew');
 
 -- set-up rules
-select is((select count(*)::int from public.staff), 6, 'every sign-in gets a staff row');
+select is((select count(*)::int from public.staff where id::text like '10000000-%'), 6, 'every sign-in gets a staff row');
 select is((select display_name from public.staff where id = '10000000-0000-4000-8000-000000000001'), 'Ada Admin', 'staff names come from the sign-in');
 select is((select class_id from public.check_sessions where id = 'c0000000-0000-4000-8000-000000000001'),
   'a1000000-0000-4000-8000-000000000001'::uuid, 'a check is filed under the student''s class');

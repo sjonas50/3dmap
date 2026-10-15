@@ -57,7 +57,27 @@
   .who:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
   .who.guest { font-size: 18px; background: #f3efe4; border-left-width: 3px; }
   #notMe { font: 700 16px Andika, sans-serif; background: none; border: 0; padding: 2px 6px; margin: -8px 0 8px; color: var(--honey-dark); text-decoration: underline; cursor: pointer; }
-  #teacherLink { display: inline-block; margin-top: 14px; font-size: 15px; color: #6a5a40; }
+  #startFoot { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 20px; margin-top: 14px; font-size: 15px; }
+  #teacherLink { color: #6a5a40; }
+  #joinOpen { font: 15px Andika, sans-serif; color: #6a5a40; background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
+  #startNote { margin: 8px 0 0; font-size: 17px; font-weight: 700; color: #9a3a12; }
+  #startNote:empty { display: none; }
+  /* classroom devices: a grown-up types the class's code once (device.js) */
+  #joinBox { position: fixed; inset: 0; z-index: 16; display: grid; place-content: center; padding: 16px; background: rgba(30,40,60,0.5); }
+  #joinBox .panel { background: var(--paper); border: 4px solid var(--ink); border-radius: 24px; padding: 18px 22px 20px; box-shadow: 0 8px 0 var(--ink); width: min(540px, calc(100vw - 32px)); display: grid; gap: 12px; font-size: 18px; }
+  #joinBox h2 { font: 700 28px Fredoka, Andika, sans-serif; margin: 0; }
+  #joinBox p, #joinBox form { margin: 0; }
+  #joinBox .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  #joinBox button { font: 700 18px Andika, sans-serif; color: var(--ink); border: 3px solid var(--ink); border-radius: 14px; background: #fff; padding: 7px 16px; cursor: pointer; }
+  #joinBox button.go { background: var(--honey); box-shadow: 0 4px 0 var(--ink); }
+  #joinBox button.danger { background: #ffd9d4; }
+  #joinBox button:disabled { opacity: 0.5; }
+  #joinBox input { font: 700 26px Andika, sans-serif; color: var(--ink); border: 3px solid var(--ink); border-radius: 14px; padding: 5px 12px; background: #fff; min-width: 0; }
+  #joinCode { width: 8.5em; letter-spacing: 3px; text-transform: uppercase; }
+  #leaveA { width: 3.5em; text-align: center; }
+  #joinStatus { color: #6a5a40; }
+  #joinMsg { font-weight: 700; }
+  #joinMsg:empty { display: none; }
   #whoName { align-self: center; font-weight: 700; }
 
   #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
@@ -199,8 +219,9 @@
 <div id="start" class="hidden">
   <div class="panel">
     <h1><span>ReaderBee</span> World</h1>
+    <p id="startNote"></p>
     <div id="who" class="hidden">
-      <p class="sub">Who's playing? Tap your name.</p>
+      <p class="sub" id="whoSub">Who's playing? Tap your name.</p>
       <div id="whoList"></div>
     </div>
     <div id="pick">
@@ -222,7 +243,23 @@
         <span><kbd>C</kbd> change friend</span>
       </div>
     </div>
-    <a id="teacherLink" href="teacher.html">👩‍🏫 For teachers</a>
+    <div id="startFoot"><a id="teacherLink" href="teacher.html">👩‍🏫 For teachers</a><button id="joinOpen">🏫 Join a class</button></div>
+  </div>
+</div>
+
+<div id="joinBox" class="hidden" role="dialog" aria-modal="true" aria-labelledby="joinTitle">
+  <div class="panel">
+    <h2 id="joinTitle">🏫 Class devices</h2>
+    <p id="joinStatus"></p>
+    <form id="joinForm" autocomplete="off">
+      <label for="joinCode" id="joinLabel"></label>
+      <div class="row"><input id="joinCode" maxlength="11" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="ABCD 2345" enterkeyhint="go" />
+        <button id="joinGo" class="go">Join</button></div>
+    </form>
+    <p id="joinMsg" aria-live="polite"></p>
+    <form id="leaveGate" class="row hidden" autocomplete="off"><label for="leaveA" id="leaveQ"></label><input id="leaveA" inputmode="numeric" maxlength="3" />
+      <button class="danger">Take it out</button></form>
+    <div class="row"><button type="button" id="leaveOpen" class="hidden">Take this device out of the class</button><button type="button" id="joinClose">Close</button></div>
   </div>
 </div>
 
@@ -257,6 +294,9 @@
     <div class="row"><button id="askToggle">📖 Questions: on</button></div>
     <p class="note">Before a place's star, children tap its word; with each golden letter, its little letter. Students' answers go to their teacher's report.</p>
     <div id="whoRow" class="hidden"><h3>Who's playing</h3><div class="row"><span id="whoName"></span><button id="changePlayer">Change</button></div></div>
+    <h3>Class</h3>
+    <p class="note" id="classNote"></p>
+    <div class="row"><button id="classOpen">🏫 Class devices</button></div>
     <h3>Stars and letters</h3>
     <div class="row" id="resetRow"><button id="resetStars">Start over</button><button id="closeSettings">Close</button></div>
     <div class="row hidden" id="resetConfirm"><span>Erase all stars and letters?</span><button id="resetYes" class="danger">Yes, erase</button><button id="resetNo">No</button></div>
