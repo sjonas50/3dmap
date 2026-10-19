@@ -25,6 +25,7 @@ export class UI {
     this.questHint = 0;     // map hints given for this quest: 2 shows a glow, 3 the ring
     this.mapFlash = null;   // a place tapped by mistake on the map, labelled for a moment
     this.onHear = null;     // the quest was read aloud to the child
+    this.onFind = null;     // a place was just found (main.js tells the class's other devices)
     this.marks = LANDMARKS.map((l) => {
       const [x, z] = P(...l.p);
       return { ...l, x, z };
@@ -214,6 +215,7 @@ export class UI {
     if (this.found.has(m.id)) return null;
     this.found.add(m.id);
     try { localStorage.setItem(this.store, JSON.stringify([...this.found])); } catch { /* ignore */ }
+    this.onFind?.(m);
     this.$('foundN').textContent = this.found.size;
     this.chime();
     this.toast(this.found.size === this.marks.length ? '🎉 You found every place! 🎉' : `⭐ You found <b>${m.name}</b>!`);

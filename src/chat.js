@@ -6,12 +6,20 @@ import { voices } from './voice.js';
 const AI_KEY = 'readerbee-ai', VOICE_KEY = 'readerbee-voice';
 const PRIVATE = [
   /[\w.+-]+@[\w-]+\.[a-z]{2,}/i, // email
-  /(?:\d[\s().-]*){7,}/, // phone-like number
   /\b\d{1,5}\s+(?:[a-z]+\s+){1,3}(?:street|st|road|rd|avenue|ave|lane|ln|drive|dr|court|ct|boulevard|blvd|way|place|pl|terrace|circle)\b/i,
   /\b(?:my|our)\s+(?:address|phone|phone number|password|email|last name)\s+(?:is|=)/i,
   /https?:\/\/|www\./i,
 ];
-const isPrivate = (text) => PRIVATE.some((p) => p.test(text));
+const DIGITS = /(?:\d[\s().-]*){7,}/g; // 7 or more digits: could be a phone number
+const STEPS = new Set([1, 2, 3, 4, 5, 10, 20, 25, 50, 100, 1000]);
+/** Counting (1 2 3 4 5 6 7, 10 20 30 40, 1234567) has as many digits as a phone number, but isn't one. */
+function counting(run) {
+  const digits = run.replace(/\D/g, ''), n = run.match(/\d+/g).map(Number), step = n[1] - n[0];
+  if (/^(\d)\1+$/.test(digits) || '01234567890'.includes(digits) || '09876543210'.includes(digits)) return true; // 1111111, 1234567, 9876543210
+  return n.length >= 3 && STEPS.has(Math.abs(step)) && n.every((x, i) => !i || x - n[i - 1] === step);
+}
+/** Does a child's message look like a phone number, address, email or link? (serve.py checks the same.) */
+export const isPrivate = (text) => PRIVATE.some((p) => p.test(text)) || [...text.matchAll(DIGITS)].some((m) => !counting(m[0]));
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const store = {
   get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
@@ -31,8 +39,10 @@ export class Chat {
     this.friend = null;
     this.waiting = false;
     this.turn = 0;
-    this.aiOn = store.get(AI_KEY, 'on') !== 'off';
-    this.voiceOn = store.get(VOICE_KEY, 'on') !== 'off';
+    // both stay off until a grown-up turns them on in Settings: Smart talk sends what a child says to Anthropic,
+    // and voice typing sends their voice to the browser's speech service
+    this.aiOn = store.get(AI_KEY, 'off') === 'on';
+    this.voiceOn = store.get(VOICE_KEY, 'off') === 'on';
     this.server = null; // { ai, model } from /api/status, or null if the server has no chat API
     this.used = new Map(); // offline lines already said, so friends don't repeat themselves
 
@@ -45,6 +55,7 @@ export class Chat {
       if (e.key === 'Escape') this.close();
     });
     this.$('chatMic').onclick = () => (this.listening ? this.rec?.stop() : this.listen());
+    this.$('chatAI').onclick = () => this.speak('A computer helps me talk. I am a pretend friend in the game.', true, false);
     this.$('chatChoices').addEventListener('click', (e) => {
       const hear = e.target.closest('.hear');
       const chip = e.target.closest('.chip');
@@ -54,13 +65,17 @@ export class Chat {
       else this.send(chip.dataset.text);
     });
     this.updateMic();
-    fetch('api/status').then((r) => (r.ok ? r.json() : null)).then((s) => (this.server = s)).catch(() => (this.server = null));
+    fetch('api/status').then((r) => (r.ok ? r.json() : null)).then((s) => { this.server = s; this.showAI(); }).catch(() => (this.server = null));
   }
 
   get open() { return !!this.friend; }
-  /** Is Claude answering (server has a key and the grown-up hasn't switched it off)? */
+  /** Can this browser turn speech into words (voice typing)? */
+  get canListen() { return !!SR; }
+  /** Is Claude answering (the server has a key and a grown-up turned Smart talk on)? */
   get aiActive() { return this.aiOn && !!this.server?.ai; }
-  setAI(on) { this.aiOn = on; store.set(AI_KEY, on ? 'on' : 'off'); }
+  setAI(on) { this.aiOn = on; store.set(AI_KEY, on ? 'on' : 'off'); this.showAI(); }
+  /** While Smart talk is on, children see (and can hear) that a computer writes the friend's lines. */
+  showAI() { this.$('chatAI').classList.toggle('hidden', !this.aiActive); }
   setVoice(on) { this.voiceOn = on; store.set(VOICE_KEY, on ? 'on' : 'off'); this.updateMic(); }
 
   /** Open the panel and greet (named start because `open` is the is-it-open getter). */
@@ -69,6 +84,7 @@ export class Chat {
     this.friend = friend;
     this.$('chatFace').textContent = friend.def.emoji;
     this.$('chatName').textContent = friend.def.name;
+    this.showAI();
     this.$('chatKid').textContent = '';
     this.$('chatText').value = '';
     this.$('chat').classList.remove('hidden');

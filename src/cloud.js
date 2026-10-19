@@ -6,8 +6,19 @@ import { applyServer, checkPayload } from './classroom.js';
 const SDK = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm';
 const PAGE = 500;
 
+/** This computer's school account project, from serve.py: { url, key }, or null when it has none. */
+export async function projectConfig() {
+  try {
+    const r = await fetch('api/config');
+    if (r.ok) return (await r.json()).supabase || null;
+  } catch { /* no server API: device only */ }
+  return null;
+}
+/** The Supabase library, loaded the first time it's needed (throws without internet). */
+export const loadSDK = () => import(SDK);
+
 /** A refusal from the school account (a rule or bad data), as opposed to not reaching it at all. */
-function refused(e) {
+export function refused(e) {
   const err = new Error(e?.code === '42501' ? 'Only the class’s teacher can change that.' : e?.message || 'The school account said no.');
   // database and API error codes (42501, P0001, PGRST116...) and 4xx sign-in errors are refusals; anything else is "offline"
   err.refused = /^([0-9A-Z]{5}|PGRST\d+)$/.test(e?.code || '') || (e?.status >= 400 && e?.status < 500);
@@ -39,14 +50,10 @@ export class Cloud {
 
   /** Connect if this computer has a school account project. Returns false when it hasn't. */
   async init() {
-    let cfg = null;
-    try {
-      const r = await fetch('api/config');
-      if (r.ok) cfg = (await r.json()).supabase;
-    } catch { /* no server API: device only */ }
+    const cfg = await projectConfig();
     if (!cfg) return false;
     let createClient;
-    try { ({ createClient } = await import(SDK)); } catch {
+    try { ({ createClient } = await loadSDK()); } catch {
       this.state = 'offline';
       this.error = 'Could not load sign-in (no internet?)';
       return false;
@@ -90,6 +97,17 @@ export class Cloud {
   classes() { return ok(this.db.from('classes').select('id, name, school_id').order('name')); }
   createSchool(name) { return ok(this.db.rpc('create_school', { name })); }
   createClass(school, name) { return ok(this.db.rpc('create_class', { school, name })); }
+
+  // ------------------------------------------------------------------ the class's devices (device.js in the game)
+  joinCode(classId) { return ok(this.db.rpc('join_code', { class: classId })); }
+  makeJoinCode(classId) { return ok(this.db.rpc('make_join_code', { class: classId })); }
+  stopJoinCode(classId) { return ok(this.db.rpc('stop_join_code', { class: classId })); }
+  devices(classId) { return ok(this.db.from('class_devices').select('id, number, label, joined_at, last_seen').eq('class_id', classId).order('number')); }
+  /** Take one device (or, without an id, every device) out of the class. */
+  removeDevices(classId, id = null) {
+    const q = this.db.from('class_devices').delete().eq('class_id', classId);
+    return ok(id ? q.eq('id', id) : q);
+  }
 
   // ------------------------------------------------------------------ syncing
   /**

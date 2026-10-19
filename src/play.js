@@ -49,6 +49,7 @@ export class Play {
     Object.assign(this, ctx); // scene, terrain, surfaces, colliders, fx, sound, world (build ctx), font, groundAt, water
     this.store = LETTERS_KEY;
     this.found = readLetters(this.store);
+    this.onFind = null; // a golden letter was just found (main.js tells the class's other devices)
     this.t = 0;
     this.buildLetters();
     this.buildZip();
@@ -157,6 +158,7 @@ export class Play {
         L.g.visible = false;
         this.found.add(L.ch);
         try { localStorage.setItem(this.store, JSON.stringify([...this.found])); } catch { /* ignore */ }
+        this.onFind?.(L.ch);
         this.fx.sparkle(L.x, L.g.position.y, L.z, 40, 1.4);
         if (L.ch === 'X' && this.world.chest) this.chestOpen = 1;
         picked = L;
