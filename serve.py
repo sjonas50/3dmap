@@ -7,6 +7,9 @@
 
     python3 serve.py                                  # then open http://localhost:8642
 
+It answers only this computer. To open the game on other devices on the same network (an iPad, say), start it
+with READERBEE_HOST=0.0.0.0; anyone on that network can then use the talking friends, and so the API key.
+
 To let the friends answer with Claude, put your Anthropic API key in a file called .env next to this
 script (it is picked up straight away, no restart needed):
 
@@ -29,6 +32,7 @@ import http.server
 import json
 import os
 import re
+import socket
 import sys
 import threading
 import time
@@ -75,6 +79,21 @@ def api_key():
 
 def model():
     return setting("READERBEE_MODEL", "claude-opus-5-5")
+
+
+def host():
+    """Where the server listens: only this computer unless READERBEE_HOST says otherwise (0.0.0.0: the whole network)."""
+    return setting("READERBEE_HOST", "127.0.0.1")
+
+
+def lan_address():
+    """This computer's address on the local network, or None (connecting a UDP socket sends nothing)."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))
+            return s.getsockname()[0]
+    except OSError:
+        return None
 
 
 def api_url():
@@ -158,7 +177,6 @@ REPLY_TOOL = {
 
 PRIVATE = [
     re.compile(r"[\w.+-]+@[\w-]+\.[a-z]{2,}", re.I),                                  # email
-    re.compile(r"(?:\d[\s().-]*){7,}"),                                               # phone-like number
     re.compile(r"\b\d{1,5}\s+(?:[a-z]+\s+){1,3}(?:street|st|road|rd|avenue|ave|lane|ln|drive|dr|court|ct|"
                r"boulevard|blvd|way|place|pl|terrace|circle)\b", re.I),               # street address
     re.compile(r"\b(?:my|our)\s+(?:address|phone|phone number|password|email|last name)\s+(?:is|=)", re.I),
@@ -166,8 +184,23 @@ PRIVATE = [
 ]
 
 
+DIGITS = re.compile(r"(?:\d[\s().-]*){7,}")                                          # 7+ digits: could be a phone number
+STEPS = {1, 2, 3, 4, 5, 10, 20, 25, 50, 100, 1000}
+
+
+def counting(run):
+    """Counting (1 2 3 4 5 6 7, 10 20 30 40, 1234567) has as many digits as a phone number, but isn't one."""
+    digits = re.sub(r"\D", "", run)
+    if re.fullmatch(r"(\d)\1+", digits) or digits in "01234567890" or digits in "09876543210":
+        return True
+    n = [int(x) for x in re.findall(r"\d+", run)]
+    step = n[1] - n[0] if len(n) > 1 else 0
+    return len(n) >= 3 and abs(step) in STEPS and all(b - a == step for a, b in zip(n, n[1:]))
+
+
 def private_info(text):
-    return any(p.search(text) for p in PRIVATE)
+    """A phone number, address, email or link (src/chat.js checks the same before sending)."""
+    return any(p.search(text) for p in PRIVATE) or any(not counting(m.group()) for m in DIGITS.finditer(text))
 
 
 def clean(text, limit):
@@ -362,8 +395,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    server = http.server.ThreadingHTTPServer(("", PORT), Handler)
+    bind = host()
+    try:
+        server = http.server.ThreadingHTTPServer((bind, PORT), Handler)
+    except OSError as e:
+        sys.exit(f"Can't listen on {bind}:{PORT}: {e}")
     print(f"ReaderBee World: http://localhost:{PORT}", flush=True)
+    if bind not in ("127.0.0.1", "localhost"):
+        lan = lan_address() if bind == "0.0.0.0" else bind
+        where = f" at http://{lan}:{PORT}" if lan else ""
+        key = ", and use the talking friends with your API key" if api_key() else ""
+        print(f"Other devices on this network can open it too{where}{key}. Leave READERBEE_HOST out to keep it to this computer.",
+              flush=True)
     if api_key():
         print(f"Talking friends: Claude ({model()})", flush=True)
     else:

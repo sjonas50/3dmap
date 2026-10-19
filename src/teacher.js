@@ -503,7 +503,8 @@ async function loadDevices(box, classId) {
   box.innerHTML = `<section class="card"><div class="bar"><h3>Class devices</h3><span class="grow"></span><button id="devRefresh">Refresh</button></div>
     <p>Let the class’s iPads and computers play as your students. A grown-up joins each device once with a code; then each child taps their
       name in the game, and the island words they read and the letters they match show up here. Stars and letters follow a child from one device to another.
-      A device sees only the class’s nicknames.</p>
+      A device sees only the class’s nicknames. The talking friends use their own built-in lines unless a grown-up turns Smart talk on
+      in the game’s ⚙️ Settings → 🔒 Grown-ups.</p>
     <div id="codeBox"><p class="dim">Loading…</p></div><div id="deviceList"></div><div id="devMsg" class="dim"></div></section>`;
   const reload = () => renderDevices(true);
   $('devRefresh').onclick = reload;

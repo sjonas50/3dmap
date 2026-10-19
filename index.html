@@ -109,6 +109,9 @@
   #settings .note { font-size: 14px; margin: -2px 0 10px; color: #6a5a40; }
   #settings .note:empty { display: none; }
   #settings select { font: 16px Andika, sans-serif; border: 2px solid var(--ink); border-radius: 12px; padding: 6px 8px; min-height: 38px; max-width: 190px; background: #fff; color: var(--ink); }
+  #adultGate { align-items: center; }
+  #adultQ { flex-basis: 100%; }
+  #adultA { width: 3.5em; font: 700 20px Andika, sans-serif; text-align: center; border: 2px solid var(--ink); border-radius: 12px; padding: 4px 6px; color: var(--ink); background: #fff; }
   #card { z-index: 2; position: absolute; top: 16px; left: 50%; transform: translateX(-50%); background: var(--paper); border: 4px solid var(--ink); border-radius: 26px; padding: 10px 28px 12px; text-align: center; box-shadow: 0 6px 0 var(--ink), 0 14px 30px rgba(0,0,0,0.25); min-width: 280px; max-width: min(92vw, 640px); pointer-events: auto; }
   #card.pop { animation: pop 0.45s cubic-bezier(.2,1.6,.4,1); }
   @keyframes pop { from { transform: translateX(-50%) scale(0.6); opacity: 0; } to { transform: translateX(-50%) scale(1); opacity: 1; } }
@@ -132,6 +135,8 @@
   body.touch #help { display: none; }
   body.touch #minimap { top: 76px; right: 14px; bottom: auto; width: 170px; height: 169px; }
   body.touch .key { display: none; }
+  .keys.touch, body.touch .keys { display: none; }
+  body.touch .keys.touch { display: flex; }
   body.touch .qbtns button { padding: 8px 14px; font-size: 18px; }
   body.touch #card { top: auto; bottom: 182px; }
   #help { position: absolute; left: 14px; bottom: 14px; background: rgba(255,250,240,0.92); border: 3px solid var(--ink); border-radius: 16px; padding: 8px 12px; font-size: 16px; line-height: 1.8; max-width: 330px; }
@@ -147,7 +152,10 @@
   #chat { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); width: min(740px, calc(100vw - 20px)); z-index: 12; background: var(--paper); border: 4px solid var(--ink); border-radius: 26px; box-shadow: 0 8px 0 var(--ink), 0 18px 40px rgba(0,0,0,0.3); padding: 12px 16px 14px; display: grid; gap: 10px; }
   .chatTop { display: flex; align-items: center; gap: 10px; }
   #chatFace { font-size: 32px; width: 54px; height: 54px; display: grid; place-content: center; background: #fff2c4; border: 3px solid var(--ink); border-radius: 50%; flex: none; }
-  #chatName { font: 700 26px Fredoka, Andika, sans-serif; flex: 1; }
+  .chatWho { flex: 1; min-width: 0; display: grid; justify-items: start; gap: 2px; }
+  #chatName { font: 700 26px Fredoka, Andika, sans-serif; }
+  /* Smart talk is on: children are told, in words they can hear, that a computer writes the friend's lines */
+  #chatAI { font: 700 15px Andika, sans-serif; color: #3d4f66; background: #e6effa; border: 2px solid #8cb8dd; border-radius: 12px; padding: 1px 9px; cursor: pointer; }
   .round { width: 54px; height: 54px; flex: none; border-radius: 50%; border: 3px solid var(--ink); background: #fff; font-size: 24px; cursor: pointer; box-shadow: 0 3px 0 var(--ink); display: grid; place-content: center; padding: 0; }
   #chatKid { justify-self: end; background: #dff1ff; border: 2px solid #8cb8dd; border-radius: 16px 16px 4px 16px; padding: 4px 12px; font-size: 19px; max-width: 80%; }
   #chatKid:empty { display: none; }
@@ -242,6 +250,15 @@
         <span><kbd>M</kbd> map</span>
         <span><kbd>C</kbd> change friend</span>
       </div>
+      <div class="keys touch">
+        <span>👆 drag on the left side to walk</span>
+        <span>👆 tap the ground to walk there</span>
+        <span>🦘 jump</span>
+        <span>🔊 read it to me</span>
+        <span>🐝 bee shows the way</span>
+        <span>🗺️ map</span>
+        <span>✋ talk to friends, zip line &amp; balloon</span>
+      </div>
     </div>
     <div id="startFoot"><a id="teacherLink" href="teacher.html">👩‍🏫 For teachers</a><button id="joinOpen">🏫 Join a class</button></div>
   </div>
@@ -280,26 +297,33 @@
   </div>
   <div id="topRight"><button id="btnTime" title="Change the time of day (T)">☀️</button><button id="btnHome" title="Go home">🏠</button><button id="btnSound" title="Sound">🔊</button><button id="btnSettings" title="Settings">⚙️</button></div>
   <div id="settings" class="hidden">
-    <h3>Picture quality</h3>
-    <div class="row" id="qualityBtns"><button data-q="auto">Auto</button><button data-q="high">High</button><button data-q="medium">Medium</button><button data-q="low">Low</button></div>
     <h3>Time of day</h3>
     <div class="row" id="timeBtns"><button data-t="0.29">🌅 Morning</button><button data-t="0.5">☀️ Noon</button><button data-t="0.735">🌇 Sunset</button><button data-t="0.93">🌙 Night</button><button id="timeRun">⏸ Stop time</button></div>
-    <h3>Reading voice</h3>
-    <div class="row"><select id="voicePick" aria-label="Reading voice"></select><button id="voiceTest">▶ Test</button></div>
-    <p class="note" id="voiceNote"></p>
-    <h3>Talking friends</h3>
-    <div class="row"><button id="aiToggle">🤖 Smart talk: on</button><button id="voiceToggle">🎤 Voice typing: on</button></div>
-    <p class="note" id="aiStatus"></p>
-    <h3>Reading questions</h3>
-    <div class="row"><button id="askToggle">📖 Questions: on</button></div>
-    <p class="note">Before a place's star, children tap its word; with each golden letter, its little letter. Students' answers go to their teacher's report.</p>
     <div id="whoRow" class="hidden"><h3>Who's playing</h3><div class="row"><span id="whoName"></span><button id="changePlayer">Change</button></div></div>
-    <h3>Class</h3>
-    <p class="note" id="classNote"></p>
-    <div class="row"><button id="classOpen">🏫 Class devices</button></div>
-    <h3>Stars and letters</h3>
-    <div class="row" id="resetRow"><button id="resetStars">Start over</button><button id="closeSettings">Close</button></div>
-    <div class="row hidden" id="resetConfirm"><span>Erase all stars and letters?</span><button id="resetYes" class="danger">Yes, erase</button><button id="resetNo">No</button></div>
+    <!-- the rest changes the game for every child on this device, or erases stars: a grown-up's sum opens it -->
+    <div id="adult" class="hidden">
+      <h3>Picture quality</h3>
+      <div class="row" id="qualityBtns"><button data-q="auto">Auto</button><button data-q="high">High</button><button data-q="medium">Medium</button><button data-q="low">Low</button></div>
+      <h3>Reading voice</h3>
+      <div class="row"><select id="voicePick" aria-label="Reading voice"></select><button id="voiceTest">▶ Test</button></div>
+      <p class="note" id="voiceNote"></p>
+      <h3>Talking friends</h3>
+      <div class="row"><button id="aiToggle">🤖 Smart talk: off</button><button id="voiceToggle">🎤 Voice typing: off</button></div>
+      <p class="note" id="aiStatus"></p>
+      <p class="note" id="micStatus"></p>
+      <h3>Reading questions</h3>
+      <div class="row"><button id="askToggle">📖 Questions: on</button></div>
+      <p class="note">Before a place's star, children tap its word; with each golden letter, its little letter. Students' answers go to their teacher's report.</p>
+      <h3>Class</h3>
+      <p class="note" id="classNote"></p>
+      <div class="row"><button id="classOpen">🏫 Class devices</button></div>
+      <h3>Stars and letters</h3>
+      <div class="row" id="resetRow"><button id="resetStars">Start over</button></div>
+      <div class="row hidden" id="resetConfirm"><span>Erase all stars and letters?</span><button id="resetYes" class="danger">Yes, erase</button><button id="resetNo">No</button></div>
+    </div>
+    <div class="row"><button id="adultOpen">🔒 Grown-ups</button><button id="closeSettings">Close</button></div>
+    <form id="adultGate" class="row hidden" autocomplete="off"><label for="adultA" id="adultQ"></label><input id="adultA" inputmode="numeric" maxlength="3" /><button>Open</button></form>
+    <p class="note" id="adultMsg" aria-live="polite"></p>
   </div>
   <div id="card" class="hidden">
     <div id="cardPlace"></div>
@@ -332,7 +356,8 @@
 
 <div id="chat" class="hidden" role="dialog" aria-label="Talk with a friend">
   <div class="chatTop">
-    <span id="chatFace"></span><span id="chatName"></span>
+    <span id="chatFace"></span>
+    <span class="chatWho"><span id="chatName"></span><button id="chatAI" class="hidden" title="Hear about it">🤖 A computer helps me talk</button></span>
     <button id="chatHear" class="round" title="Hear it again">🔊</button>
     <button id="chatClose" class="round" title="Close">✕</button>
   </div>

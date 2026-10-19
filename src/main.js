@@ -1282,20 +1282,32 @@ function friendSpot(def) {
 
 // ---------------------------------------------------------------------------
 // HUD buttons: home, sound, settings
+
+/** Show a grown-up's sum (6–9 × 6–9) in its little form, so children can't do grown-up things by accident; returns the answer. */
+function grownUpSum(form, label, input) {
+  const a = 6 + Math.floor(Math.random() * 4), b = 6 + Math.floor(Math.random() * 4);
+  label.textContent = `Grown-ups: ${a} × ${b} =`;
+  input.value = '';
+  form.classList.remove('hidden');
+  input.focus();
+  return a * b;
+}
+
 function setupButtons() {
   $('btnHome').onclick = () => { if (chat?.open) chat.close(); goHome(); ui.toast('🏠 Back home!'); };
   ui.onPick = mapPick;
   $('bigmap').addEventListener('click', (e) => e.target.id === 'bigmap' && toggleMap());
   $('bigClose').onclick = () => $('bigmap').classList.add('hidden');
-  // talking friends: grown-ups can turn the AI (or voice typing) off
+  // talking friends: Smart talk and voice typing stay off until a grown-up turns them on, knowing where words go
   const aiBtn = $('aiToggle'), voiceBtn = $('voiceToggle');
   const showAI = () => {
     aiBtn.textContent = `🤖 Smart talk: ${chat.aiOn ? 'on' : 'off'}`;
     voiceBtn.textContent = `🎤 Voice typing: ${chat.voiceOn ? 'on' : 'off'}`;
-    const srv = chat.server;
-    $('aiStatus').textContent = !chat.aiOn ? 'Friends use their own built-in lines.'
-      : srv?.ai ? 'Friends answer with Claude AI (messages go to Anthropic to get a reply). The game saves nothing your child says.'
-        : 'AI is not set up on this computer, so friends use built-in lines.';
+    voiceBtn.classList.toggle('hidden', !chat.canListen);
+    $('aiStatus').textContent = !chat.server?.ai ? 'AI isn’t set up on this computer, so friends use their own built-in lines.'
+      : chat.aiOn ? 'Claude AI writes the friends’ replies, so what a child types or says goes to Anthropic to get an answer. The game keeps none of it, and the chat shows children that a computer is talking.'
+        : 'Friends use their own built-in lines. With Smart talk on, Claude AI writes their replies, so what a child types or says goes to Anthropic to get an answer.';
+    $('micStatus').textContent = chat.canListen ? 'Voice typing sends a child’s voice to this browser’s speech service (Google’s, in Chrome) to turn it into words.' : '';
   };
   aiBtn.onclick = () => { chat.setAI(!chat.aiOn); showAI(); };
   // reading voice: the most natural one this device has, unless a grown-up picks another
@@ -1312,13 +1324,11 @@ function setupButtons() {
   vPick.onchange = () => { voices.choice = vPick.value; voices.speak("Hi! Let's read together.", { rate: 0.95 }); };
   $('voiceTest').onclick = () => voices.speak('The big red barn is on the farm.', { rate: 0.92 });
   voiceBtn.onclick = () => { chat.setVoice(!chat.voiceOn); showAI(); };
-  $('btnSettings').addEventListener('click', showAI);
   $('bigmapHint').textContent = touch.enabled ? 'Tap a place to go there!' : 'Click a place to go there! · Press M to close';
   const soundBtn = $('btnSound');
   const showSound = () => (soundBtn.textContent = sound.muted ? '🔇' : '🔊');
   showSound();
   soundBtn.onclick = () => { sound.setMuted(!sound.muted); showSound(); };
-  $('btnSettings').onclick = () => $('settings').classList.toggle('hidden');
   $('closeSettings').onclick = () => $('settings').classList.add('hidden');
   $('changePlayer').onclick = () => location.reload(); // back to "Who's playing?"
   const qBtns = [...document.querySelectorAll('#qualityBtns button')];
@@ -1338,6 +1348,24 @@ function setupButtons() {
   const confirmReset = (on) => { $('resetRow').classList.toggle('hidden', on); $('resetConfirm').classList.toggle('hidden', !on); };
   $('resetStars').onclick = () => confirmReset(true);
   $('resetNo').onclick = () => confirmReset(false);
+  // Settings opens with only the children's part (time of day, who's playing); the rest needs a grown-up's sum each time
+  let sum = 0;
+  const lock = () => {
+    $('adult').classList.add('hidden');
+    $('adultGate').classList.add('hidden');
+    $('adultOpen').classList.remove('hidden');
+    $('adultMsg').textContent = '';
+    confirmReset(false);
+  };
+  $('btnSettings').onclick = () => { if (!$('settings').classList.toggle('hidden')) { lock(); showAI(); } };
+  $('adultOpen').onclick = () => { $('adultMsg').textContent = ''; sum = grownUpSum($('adultGate'), $('adultQ'), $('adultA')); };
+  $('adultGate').onsubmit = (e) => {
+    e.preventDefault();
+    $('adultGate').classList.add('hidden');
+    if (Number($('adultA').value.trim()) !== sum) { $('adultMsg').textContent = 'Not quite, so the grown-up settings stay closed.'; return; }
+    $('adultOpen').classList.add('hidden');
+    $('adult').classList.remove('hidden');
+  };
   $('resetYes').onclick = () => {
     confirmReset(false);
     if (student && device.class) device.startOver(student.id); // on every one of the class's devices
@@ -1440,14 +1468,7 @@ function setupClass(onJoinOrLeave, onClassList) {
     }
   };
   // taking the device out of its class needs a grown-up's sum, so children can't do it by accident
-  $('leaveOpen').onclick = () => {
-    const a = 6 + Math.floor(Math.random() * 4), b = 6 + Math.floor(Math.random() * 4);
-    want = a * b;
-    $('leaveQ').textContent = `Grown-ups: ${a} × ${b} =`;
-    $('leaveA').value = '';
-    $('leaveGate').classList.remove('hidden');
-    $('leaveA').focus();
-  };
+  $('leaveOpen').onclick = () => (want = grownUpSum($('leaveGate'), $('leaveQ'), $('leaveA')));
   $('leaveGate').onsubmit = async (e) => {
     e.preventDefault();
     $('leaveGate').classList.add('hidden');
